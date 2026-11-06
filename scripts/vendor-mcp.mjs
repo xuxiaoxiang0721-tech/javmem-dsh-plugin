@@ -2,13 +2,14 @@
 // servers report it in their MCP handshake) and rebuilds catalog.json.
 //   node scripts/vendor-mcp.mjs <path to javmem-mcp>
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const mcp = join(here, '..', 'mcp');
-const FILES = ['memory-mcp.js', 'memv2-mcp.js', 'javis-mcp.js'];
+const FILES = ['memory-mcp.js', 'memv2-mcp.js', 'javis-mcp.js', 'demo.js'];
+const DIRS = ['demo']; // the made-up demo data for MEMV2_URL=demo and JAVIS_URL=demo
 
 const from = process.argv[2];
 if (!from) {
@@ -21,12 +22,16 @@ if (pkg.name !== 'javmem-mcp') {
   process.exit(2);
 }
 for (const file of FILES) copyFileSync(join(from, file), join(mcp, file));
+for (const dir of DIRS) {
+  rmSync(join(mcp, dir), { recursive: true, force: true });
+  cpSync(join(from, dir), join(mcp, dir), { recursive: true });
+}
 // "type": "commonjs" lets the CommonJS servers run inside this "type": "module" package; keep it.
 writeFileSync(join(mcp, 'package.json'), `${JSON.stringify({
   description: `javmem-mcp ${pkg.version}, copied by scripts/vendor-mcp.mjs`,
   version: pkg.version,
   type: 'commonjs',
 }, null, 2)}\n`);
-console.log(`copied javmem-mcp ${pkg.version}: ${FILES.join(', ')}`);
+console.log(`copied javmem-mcp ${pkg.version}: ${[...FILES, ...DIRS.map((d) => `${d}/`)].join(', ')}`);
 const r = spawnSync(process.execPath, [join(here, 'make-catalog.mjs')], { stdio: 'inherit' });
 process.exit(r.status ?? 1);

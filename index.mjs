@@ -588,6 +588,7 @@ const STATE_TEXT = {
   down: '连不上',
   no_token: '令牌没配好',
   error: '出错了',
+  demo: '用的是演示数据',
 };
 const HIDE_TEXT = { ok: '隐藏名单可读', none: '没有隐藏名单', unreadable: '隐藏名单读不了，这样 Javis 一条都不会查' };
 const LABELS_TEXT = { ok: '两库对照标签可读', missing: '两库对照标签文件找不到' };

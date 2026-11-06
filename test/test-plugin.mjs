@@ -393,6 +393,21 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   ok('server processes: reuse per env, cap, idle exit, restart after a crash, replace after a timeout');
 }
 
+// 14. The demo data (MEMV2_URL and JAVIS_URL set to demo in env): a Bot answers from the made-up stores of the
+//     bundled servers, with nothing installed and no token, and memory_status says it is demo data.
+{
+  const Q = 'bot-12121212121212121212121212121212';
+  const h = host();
+  apply(h.ctx, { mode: 'on', logFile, env: { MEMV2_URL: 'demo', JAVIS_URL: 'demo' }, bots: { [Q]: { name: 'Demo', memory: {} } } });
+  const tools = h.agent(Q);
+  const answer = await run(tools.get('memory_search'), { query: '游泳课 学费' });
+  assert.match(answer, /2400 元.*（图库说法不同，以这条为准）\n   图库说：小明给小雨报了 3 个月游泳课，学费 2600 元/);
+  const status = await run(tools.get('memory_status'), {});
+  assert.match(status, /memv2（demo）：用的是演示数据。这些都是虚构的示例，不是谁的真实记忆。/);
+  assert.match(status, /Javis（demo）：用的是演示数据。/);
+  ok('demo data: a Bot answers from the made-up stores with nothing installed');
+}
+
 assert.ok(!/"query"/.test(readFileSync(logFile, 'utf8')), 'the log must not hold arguments');
 ok('log holds no arguments');
 console.log(`${passed} checks passed`);

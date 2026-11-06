@@ -38,6 +38,23 @@ The same tools work in Claude Code and other MCP clients through [javmem-mcp](ht
 3. **Turn it on**: in your profile's `cordis.patch.yml`, override the row with id `javmem` with `mode: 'on'` and the Bots that get memory (see Configuration). Once DSH reads the change, those Bots' new sessions have the memory tools.
 4. **Check**: ask a Bot to call `memory_status` once. It says whether both stores answer, whether the tokens work and whether the config has mistakes.
 
+## Try it first: demo data
+
+See it work without memv2 and Javis: set `MEMV2_URL` and `JAVIS_URL` to `demo` in the config's `env`, and the Bot answers from made-up data that ships with the package, with no token.
+
+```yaml
+- id: javmem
+  config:
+    mode: 'on'
+    env: { MEMV2_URL: 'demo', JAVIS_URL: 'demo' }
+    bots:
+      Your Bot's name: { memory: {} }
+```
+
+Then ask the Bot 「小雨的游泳课学费交了多少？」 (how much were the swimming lessons?) or 「老陈最近怎么了？」 (what is up with Lao Chen?). The data is a fictional 小明 (Xiao Ming): his daughter's swimming lessons, his colleague 老陈 moving to another office, a November trip to 千岛湖; it holds, on purpose, facts both stores agree on, facts they word differently, facts only the graph has, and one that the source text does not back (dropped). `memory_status` says it is demo data.
+
+![Demo: both stores checked against each other](docs/demo.png)
+
 ## The tools a Bot gets
 
 Each Bot gets one of two sets: the combined set (recommended), or the tools of the two stores apart.

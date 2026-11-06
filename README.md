@@ -38,6 +38,23 @@
 3. **打开**：在你的 profile 的 `cordis.patch.yml` 里按 id `javmem` 覆盖这一行，写上 `mode: 'on'` 和要接记忆的 Bot（见「配置」）。DSH 读到改动后，这些 Bot 新开的会话就有记忆工具。
 4. **看状态**：让 Bot 调一次 `memory_status`，它会说清两个库连没连上、令牌能不能用、配置有没有写错。
 
+## 先试试：演示数据
+
+没有 memv2 和 Javis 也能先看效果：在配置的 `env` 里把 `MEMV2_URL` 和 `JAVIS_URL` 设成 `demo`，Bot 就从包里自带的虚构数据回答，不要令牌。
+
+```yaml
+- id: javmem
+  config:
+    mode: 'on'
+    env: { MEMV2_URL: 'demo', JAVIS_URL: 'demo' }
+    bots:
+      你的 Bot 名字: { memory: {} }
+```
+
+然后问这个 Bot「小雨的游泳课学费交了多少？」或者「老陈最近怎么了？」。数据是一个虚构的「小明」：女儿小雨的游泳课、同事老陈调岗、十一月去千岛湖；里面故意放了两个库一致、说法不同、只在图库、和原文对不上（会被过滤掉）几种情况。`memory_status` 会说明用的是演示数据。
+
+![演示：两个库对照着回答](docs/demo.png)
+
 ## Bot 能用的工具
 
 每个 Bot 二选一：合起来的一套（推荐），或者两个库分开的工具。
