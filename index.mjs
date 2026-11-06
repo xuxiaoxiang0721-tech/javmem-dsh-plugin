@@ -12,14 +12,18 @@
 //
 // Config (the cordis row's config, or a JSON file named by configFile that is re-read when it changes):
 //   mode     'on' | 'off' (off registers nothing)
-//   bots     { <bot slug>: { name, off?, memory?: { ENV: value }, memv2?: { ENV: value }, javis?: { ENV: value } } }
-//            A slug is a Bot's folder name under <DSH home>/botharness/bots (bot-<32 hex>). memory = the combined
-//            server's five tools (give it both MEMV2_* and JAVIS_* settings); memv2 / javis = the single-store
-//            servers' tools. Give a Bot either memory or memv2/javis, not both: a Bot given both gets only the memory
-//            tools. Values are paths and settings, never tokens.
+//   bots     { <Bot id or name>: { name?, off?, memory?: { ENV: value }, memv2?: { ENV: value }, javis?: { ENV: value } } }
+//            A Bot id (slug) is its folder name under <DSH home>/botharness/bots (bot-<32 hex>); a key that is not a
+//            known id is looked up as a Bot name in Tobs's registry. memory = the combined server's five tools (give it
+//            both MEMV2_* and JAVIS_* settings); memv2 / javis = the single-store servers' tools. Give a Bot either
+//            memory or memv2/javis, not both: a Bot given both gets only the memory tools. Values are paths and
+//            settings, never tokens.
+//   template { memory?|memv2?|javis?: { ENV: value } } the stores of every listed Bot whose entry names none; within
+//            a store the Bot's own settings win. {name} and {slug} in a value become the Bot's name (characters a path
+//            cannot hold become _) and id, e.g. MEMV2_TOKEN_FILE: 'D:\memory\tokens\{name}.token'.
 // Config mistakes never stop the plugin. Each one is named in a warning line (log file and stderr) at load and on
 // every reload: a Bot given both tool sets, a dropped setting, an unknown field, a file setting whose file is
-// missing, a Bot id this DSH does not know. Warnings carry key names and paths only, never values or tokens.
+// missing, a Bot id or name this DSH does not know. Warnings carry key names and paths only, never values or tokens.
 //   env      { ENV: value } given to every call (e.g. MEMORY_OWNER, MEMV2_URL, JAVIS_URL)
 //   prefix   { memv2: 'memv2_', javis: 'javis_' }
 //   servers  { memv2: <path to memv2-mcp.js>, javis: <path to javis-mcp.js> } (default: the bundled copies)
@@ -66,9 +70,11 @@ function logger(file) {
 
 // Fields a config may carry: FILE_FIELDS in a configFile or the row, ROW_FIELDS only in the cordis row (call and now
 // are for tests), BOT_FIELDS in one Bot's entry.
-const FILE_FIELDS = ['mode', 'bots', 'env'];
+const FILE_FIELDS = ['mode', 'bots', 'env', 'template'];
 const ROW_FIELDS = ['configFile', 'catalogFile', 'logFile', 'callMs', 'prefix', 'servers', 'statusTool', 'call', 'now'];
 const BOT_FIELDS = ['name', 'off', ...STORES];
+// Tobs's own pattern for a Bot id (slug).
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // Settings that name a file, with what a missing file means for the Bot.
 const FILE_SETTINGS = {
   MEMV2_TOKEN_FILE: 'memv2 calls will fail',
@@ -80,9 +86,10 @@ const FILE_SETTINGS = {
 const isObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
 /**
- * The usable part of a config object (row config or file), and what was wrong with it. overlap names the Bots given
- * both the combined server and a single-store one: they get the memory tools only. problems lists every mistake as
- * { bot: slug or null, text } with key names, never values.
+ * The usable part of a config object (row config or file), and what was wrong with it. bots stays keyed as written
+ * (a Bot id or a Bot name; resolveBots turns the keys into ids). overlap names the Bots given both the combined server
+ * and a single-store one: they get the memory tools only. problems lists every mistake as { bot: key or null, text }
+ * with key names, never values.
  */
 export function normalizeConfig(raw = {}, from = 'row') {
   const problems = [];
@@ -102,28 +109,46 @@ export function normalizeConfig(raw = {}, from = 'row') {
     }
     return out;
   };
+  // The stores of a template or of one Bot's entry, with the memory-or-single-store rule applied.
+  const storesOf = (obj, where, bot, onBoth) => {
+    const out = {};
+    for (const store of STORES) {
+      if (obj[store] === undefined || obj[store] === null) continue;
+      if (!isObject(obj[store])) { note(`${where}.${store} is not a set of settings, so it is ignored`, bot); continue; }
+      out[store] = settings(obj[store], `${where}.${store}`, bot);
+    }
+    if (out.memory && (out.memv2 || out.javis)) {
+      onBoth();
+      delete out.memv2;
+      delete out.javis;
+    }
+    return out;
+  };
+  // template: store settings every listed Bot gets when its own entry names no store; {name} and {slug} in a value
+  // become the Bot's name and id.
+  let template = {};
+  if (input.template !== undefined && !isObject(input.template)) note('template is not a set of stores, so it is ignored');
+  else if (input.template !== undefined) {
+    for (const key of Object.keys(input.template)) if (!STORES.includes(key)) note(`unknown field template.${key}`);
+    template = storesOf(input.template, 'template', null,
+      () => note('template has both memory and memv2/javis; only memory is used'));
+  }
   const bots = {};
   const overlap = [];
   if (input.bots !== undefined && !isObject(input.bots)) note('bots is not a list of Bots, so no Bot gets tools');
-  for (const [slug, b] of Object.entries(isObject(input.bots) ? input.bots : {})) {
-    const where = `bots.${slug}`;
-    if (!isObject(b)) { note(`${where} is not a set of settings, so this Bot is skipped`, slug); continue; }
-    for (const key of Object.keys(b)) if (!BOT_FIELDS.includes(key)) note(`unknown field ${where}.${key}`, slug);
+  for (const [key, b] of Object.entries(isObject(input.bots) ? input.bots : {})) {
+    const where = `bots.${key}`;
+    if (!isObject(b)) { note(`${where} is not a set of settings, so this Bot is skipped`, key); continue; }
+    for (const field of Object.keys(b)) if (!BOT_FIELDS.includes(field)) note(`unknown field ${where}.${field}`, key);
     if (b.off === true) continue; // "off": true parks a Bot without removing it
-    const entry = { name: String(b.name || slug) };
-    for (const store of STORES) {
-      if (b[store] === undefined || b[store] === null) continue;
-      if (!isObject(b[store])) { note(`${where}.${store} is not a set of settings, so it is ignored`, slug); continue; }
-      entry[store] = settings(b[store], `${where}.${store}`, slug);
-    }
-    if (entry.memory && (entry.memv2 || entry.javis)) {
-      overlap.push(entry.name);
-      note(`bot="${entry.name}" has both memory and memv2/javis set; only the memory tools are registered`, slug);
-      delete entry.memv2;
-      delete entry.javis;
-    }
-    if (!STORES.some((s) => entry[s])) note(`bot="${entry.name}" names no store (memory, memv2 or javis), so it gets no tools`, slug);
-    bots[slug] = entry;
+    const label = String(b.name || key);
+    const entry = storesOf(b, where, key, () => {
+      overlap.push(label);
+      note(`bot="${label}" has both memory and memv2/javis set; only the memory tools are registered`, key);
+    });
+    if (b.name) entry.name = String(b.name);
+    if (!STORES.some((s) => entry[s] || template[s])) note(`bot="${label}" names no store (memory, memv2 or javis), so it gets no tools`, key);
+    bots[key] = entry;
   }
   // YAML 1.1 readers turn a bare on/off into a boolean.
   const mode = input.mode === 'on' || input.mode === true ? 'on' : 'off';
@@ -133,7 +158,84 @@ export function normalizeConfig(raw = {}, from = 'row') {
   let env = {};
   if (input.env !== undefined && !isObject(input.env)) note('env is not a set of settings, so it is ignored');
   else if (input.env !== undefined) env = settings(input.env, 'env', null);
-  return { mode, bots, env, from, overlap, problems };
+  return { mode, bots, env, template, from, overlap, problems };
+}
+
+// A Bot name as it may stand in a path: characters that paths cannot hold (or that would make it a folder) become _.
+const pathSafe = (s) => String(s).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim();
+
+/**
+ * One Bot's final store settings: its own stores, or the template's when its entry names none; within a store the
+ * template's settings (with {name} and {slug} filled in) sit under the Bot's own.
+ */
+function materialize(entry, name, slug, template = {}) {
+  const own = STORES.filter((s) => entry[s]);
+  const stores = own.length ? own : STORES.filter((s) => template[s]);
+  const fill = (v) => v.replaceAll('{name}', pathSafe(name)).replaceAll('{slug}', slug);
+  const out = { name };
+  for (const s of stores) {
+    out[s] = {
+      ...Object.fromEntries(Object.entries(template[s] || {}).map(([k, v]) => [k, fill(v)])),
+      ...(entry[s] || {}),
+    };
+  }
+  return out;
+}
+
+/**
+ * The config's Bots keyed by Bot id. A key is a Bot id, or a Bot name that Tobs's registry knows (exactly one Bot of
+ * that name, or of that name ignoring case and spaces at the ends). Without a registry an id-shaped key is taken as
+ * an id and a name waits. problems names what could not be resolved, with config keys only.
+ */
+export function resolveBots(config, registry) {
+  const bots = {};
+  const problems = [];
+  let records = null;
+  const list = () => {
+    if (records === null) {
+      try { records = typeof registry?.list === 'function' ? (registry.list() || []) : []; } catch { records = []; }
+    }
+    return records;
+  };
+  const byId = (key) => {
+    try { return typeof registry?.get === 'function' ? registry.get(key) : undefined; } catch { return undefined; }
+  };
+  for (const [key, entry] of Object.entries(config.bots)) {
+    let slug = null;
+    let record;
+    if (registry) {
+      record = byId(key);
+      if (record) {
+        slug = key;
+      } else {
+        const exact = list().filter((r) => r && r.name === key);
+        const near = exact.length ? exact : list().filter((r) => r && typeof r.name === 'string'
+          && r.name.trim().toLowerCase() === key.trim().toLowerCase());
+        if (near.length === 1 && near[0].slug) {
+          [record] = near;
+          slug = record.slug;
+        } else if (near.length > 1) {
+          problems.push({ bot: key, text: `several Bots are named ${key} (bots.${key}), so list it by its id: ${near.map((r) => r.slug).join(', ')}` });
+          continue;
+        } else {
+          problems.push({ bot: key, text: SLUG.test(key)
+            ? `no Bot ${key} in this DSH (bots.${key}), so nobody gets these tools`
+            : `no Bot named ${key} in this DSH (bots.${key}), so nobody gets these tools` });
+          continue;
+        }
+      }
+    } else if (SLUG.test(key)) {
+      slug = key;
+    } else {
+      continue; // a name needs the registry
+    }
+    if (bots[slug]) {
+      problems.push({ bot: key, text: `bots.${key} is the same Bot as bots.${bots[slug].key} (${slug}); only the first counts` });
+      continue;
+    }
+    bots[slug] = { ...materialize(entry, entry.name || record?.name || key, slug, config.template), key };
+  }
+  return { bots, problems };
 }
 
 // The JAVIS_TOKEN_FROM line of a Javis Bot profile (the file that holds the token), if it has one. Only that line is
@@ -173,18 +275,6 @@ export function fileProblems(config, exists = existsSync) {
   check(config.env, 'env', null);
   for (const [slug, bot] of Object.entries(config.bots)) {
     for (const store of STORES) if (bot[store]) check(bot[store], `bots.${slug}.${store}`, slug);
-  }
-  return problems;
-}
-
-/** Bots listed by an id this DSH's Tobs does not know (needs its registry; none is checked without one). */
-export function botProblems(config, registry) {
-  if (!registry || typeof registry.get !== 'function') return [];
-  const problems = [];
-  for (const slug of Object.keys(config.bots)) {
-    let known = true;
-    try { known = registry.get(slug) !== undefined; } catch { /* a registry that cannot answer: do not guess */ }
-    if (!known) problems.push({ bot: slug, text: `no Bot ${slug} in this DSH (bots.${slug}), so nobody gets these tools` });
   }
   return problems;
 }
@@ -402,8 +492,18 @@ export function apply(ctx, rowConfig = {}) {
   const now = rowConfig.now || Date.now;
   const log = logger(opts.logFile);
   let registry = null; // Tobs's Bot registry, once the botharness service is there
-  const allProblems = (c) => [...c.problems, ...fileProblems(c), ...botProblems(c, registry)];
-  const check = (c) => warn(allProblems(c), log);
+  const allProblems = (c) => {
+    const r = resolveBots(c, registry);
+    return [...c.problems, ...r.problems, ...fileProblems({ env: c.env, bots: r.bots })];
+  };
+  // Each warning once per config load, so the registry arriving later only adds what it newly shows (names).
+  let warned = new Set();
+  const check = (c, fresh = false) => {
+    if (fresh) warned = new Set();
+    const news = allProblems(c).filter((p) => !warned.has(p.text));
+    for (const p of news) warned.add(p.text);
+    warn(news, log);
+  };
   // The last calls of each Bot (tool, milliseconds, ok), for the status tool; never arguments or answers.
   const recent = new Map();
   const record = (slug, call) => {
@@ -418,7 +518,7 @@ export function apply(ctx, rowConfig = {}) {
   let catalog = readCatalog(opts.catalogFile);
   log(`started v=${VERSION} mode=${config.mode} bots=${Object.keys(config.bots).length} from=${config.from} `
     + `tools=${STORES.map((s) => `${s}:${catalog[s].length}`).join(',')}`);
-  check(config);
+  check(config, true);
 
   // Refresh the catalog from the servers themselves (with the shared env, so MEMORY_OWNER shows in the text).
   Promise.all(STORES.map((s) => opts.call(opts.servers[s], config.env, null, null, { timeoutMs: 30000 })
@@ -441,7 +541,7 @@ export function apply(ctx, rowConfig = {}) {
         configMtime = m;
         config = readConfig(opts.configFile, rowConfig);
         log(`config reloaded mode=${config.mode} bots=${Object.keys(config.bots).length} from=${config.from}`);
-        check(config);
+        check(config, true);
       }
     }
     return config;
@@ -453,7 +553,7 @@ export function apply(ctx, rowConfig = {}) {
       const c = current();
       if (c.mode !== 'on') return;
       const slug = info?.botSlug;
-      const bot = c.bots[slug];
+      const bot = resolveBots(c, registry).bots[slug];
       if (!bot) return;
       const who = { slug, bot, role: info.rootRole || 'unknown' };
       const sharedEnv = () => current().env;
@@ -482,7 +582,7 @@ export function apply(ctx, rowConfig = {}) {
       }
       let count = names.length;
       if (opts.statusTool) {
-        const problems = (s) => allProblems(current()).filter((p) => p.bot === s).map((p) => p.text);
+        const problems = (s) => allProblems(current()).filter((p) => p.bot === s || p.bot === bot.key).map((p) => p.text);
         if (register(statusTool(who, { opts, sharedEnv, problems, recentOf: (s) => recent.get(s) || [], toolNames: () => names }))) count += 1;
       }
       log(`tools bot="${bot.name}" role=${who.role} count=${count}`);
@@ -493,7 +593,7 @@ export function apply(ctx, rowConfig = {}) {
 
   ctx.inject(['botharness'], (scope) => {
     registry = scope.botharness?.registry ?? null;
-    warn(botProblems(current(), registry), log);
+    check(current());
     scope.effect(() => scope.botharness.contributeBotAgentSetup(setup), `${name}: per-Bot memory tools`);
   });
 }

@@ -111,7 +111,8 @@ Override the row by its id in your profile's `cordis.patch.yml`:
 | Field | Meaning |
 |---|---|
 | `mode` | `'on'` or `'off'` (quoted, so YAML does not read a yes/no) |
-| `bots` | Bots by id. The id is the Bot's folder name under `botharness/bots/` in the DSH home (`bot-` plus 32 hex digits). `memory` = the five combined tools (with both stores' settings inside); `memv2`, `javis` = the tools of each store apart, and a store left out gives no tools. Give a Bot either `memory` or `memv2`/`javis`: a Bot given both gets only the `memory` tools, with a warning. `off: true` parks a Bot |
+| `bots` | Bots by id or by name. The id is the Bot's folder name under `botharness/bots/` in the DSH home (`bot-` plus 32 hex digits); for a name the plugin finds the id in Tobs (next section). `memory` = the five combined tools (with both stores' settings inside); `memv2`, `javis` = the tools of each store apart, and a store left out gives no tools. Give a Bot either `memory` or `memv2`/`javis`: a Bot given both gets only the `memory` tools, with a warning. `off: true` parks a Bot |
+| `template` | optional: settings for every Bot whose entry names no store; `{name}` and `{slug}` become the Bot's name and id (next section) |
 | `env` | settings sent with every call, such as `MEMORY_OWNER` (how the tool text names the memory's owner), `MEMV2_URL`, `JAVIS_URL`, `MEMORY_LABELS_FILE` |
 | `configFile` | optional: a JSON file with the fields above instead, re-read when it changes, no restart |
 | `logFile` | optional: the log file's path |
@@ -121,6 +122,27 @@ Override the row by its id in your profile's `cordis.patch.yml`:
 
 Only settings starting with `MEMV2_`, `JAVIS_` or `MEMORY_` are used; the config holds paths and settings, never tokens.
 
+### Bots by name, paths from a template
+
+With many Bots there is no need to copy ids and paths one by one:
+
+```yaml
+- id: javmem
+  config:
+    mode: 'on'
+    template:
+      memory: { MEMV2_TOKEN_FILE: 'D:\memory\tokens\{name}.token', JAVIS_TOKEN_FILE: 'D:\memory\profiles\{name}.env' }
+    bots:
+      Alpha: {}
+      Beta: { memory: { MEMV2_NAMESPACE: 'beta' } }
+      bot-0123456789abcdef0123456789abcdef: { memv2: { MEMV2_TOKEN_FILE: 'D:\memory\tokens\gamma.token' } }
+```
+
+- A key in `bots` may be a Bot id or a Bot name: the plugin finds the id for a name in Tobs (ignoring case and spaces at the ends). A name that matches no Bot, or two Bots, gets a warning; write the id then.
+- `template` serves every Bot whose entry names no store: `{name}` becomes the Bot's name (characters a path cannot hold, such as `/` and `:`, become `_`), `{slug}` its id. Alpha's token file above is `D:\memory\tokens\Alpha.token`.
+- A Bot that names stores gets only the stores it names, none from the template (the third Bot above has `memv2` only); within a store, the template's settings come first and the Bot's own override them (Beta above uses the template's two files plus its own `MEMV2_NAMESPACE`).
+- The old form (an id with full settings) works as before.
+
 ### When the config has mistakes
 
 The plugin still loads, and what is usable is used; every mistake is one warning line in `logFile` and in DSH's error output, checked at start and on every config reload. Warnings name keys and paths, never values or tokens. They cover:
@@ -129,7 +151,7 @@ The plugin still loads, and what is usable is used; every mistake is one warning
 - dropped settings: names not starting with `MEMV2_`, `JAVIS_` or `MEMORY_`, or values that are not text;
 - unknown fields, such as `moode` for `mode`, or a row-only field written in the `configFile`;
 - missing files: token files, the token file a Javis profile names in `JAVIS_TOKEN_FROM`, the hide list, the verdict file, the labels file, and the `configFile` itself;
-- a Bot id this DSH's Tobs does not know; a `mode` that is neither `'on'` nor `'off'`; a Bot that names no store.
+- a Bot id or name this DSH's Tobs does not know, a name two Bots share, the same Bot listed twice; a `mode` that is neither `'on'` nor `'off'`; a Bot that names no store while there is no template.
 
 ## With private MCP servers
 

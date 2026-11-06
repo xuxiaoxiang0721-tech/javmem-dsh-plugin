@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { apply, callServer, DEFAULTS, fileProblems, normalizeConfig, parameters, VERSION } from '../index.mjs';
+import { apply, callServer, DEFAULTS, fileProblems, normalizeConfig, parameters, resolveBots, VERSION } from '../index.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'javmem-dsh-plugin-'));
 const A = 'bot-0123456789abcdef0123456789abcdef';
@@ -276,6 +276,68 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   assert.match(both, /配置提醒：没有。/);
   assert.match(both, /这个 Bot 最近还没有调用过记忆工具。/);
   ok('memory_status: tools, store states, files, warnings, last calls; no token or memory text');
+}
+
+// 12. template with {name} and {slug}; Bots listed by name, found in Tobs's registry; a Bot's own stores replace the
+//     template's, its own settings sit over the template's; unknown and ambiguous names are named; old keys still work.
+{
+  const G = 'bot-99999999999999999999999999999999';
+  const H = 'bot-88888888888888888888888888888888';
+  const records = [
+    { slug: A, name: 'Alpha' }, { slug: B, name: 'Beta' }, { slug: G, name: 'Twin' }, { slug: H, name: 'Twin' },
+    { slug: 'bot-77777777777777777777777777777777', name: 'Life / Home' },
+  ];
+  const registry = { get: (s) => records.find((r) => r.slug === s), list: () => records };
+  const dir = join(scratch, 'tpl');
+  const template = { memory: { MEMV2_TOKEN_FILE: join(dir, '{name}.token'), JAVIS_TOKEN_FILE: join(dir, '{slug}.env') } };
+  const raw = {
+    mode: 'on', env, template,
+    bots: {
+      Alpha: {},
+      ' beta ': { memory: { MEMV2_NAMESPACE: 'beta-only' } },
+      [B]: { memv2: { MEMV2_TOKEN_FILE: tokenFile } },
+      Twin: {},
+      Zed: {},
+      'Life / Home': {},
+    },
+  };
+  const c = normalizeConfig(raw);
+  assert.deepEqual(c.problems, []);
+  assert.deepEqual(Object.keys(c.template), ['memory']);
+  const r = resolveBots(c, registry);
+  assert.deepEqual(r.bots[A].memory, { MEMV2_TOKEN_FILE: join(dir, 'Alpha.token'), JAVIS_TOKEN_FILE: join(dir, `${A}.env`) });
+  assert.equal(r.bots[A].name, 'Alpha');
+  // ' beta ' (case and spaces aside) is Beta, listed first: its memory settings sit over the template's.
+  assert.deepEqual(r.bots[B].memory, { MEMV2_TOKEN_FILE: join(dir, 'Beta.token'), JAVIS_TOKEN_FILE: join(dir, `${B}.env`), MEMV2_NAMESPACE: 'beta-only' });
+  assert.equal(r.bots['bot-77777777777777777777777777777777'].memory.MEMV2_TOKEN_FILE, join(dir, 'Life _ Home.token'));
+  assert.deepEqual(r.problems.map((p) => p.text), [
+    `bots.${B} is the same Bot as bots. beta  (${B}); only the first counts`,
+    `several Bots are named Twin (bots.Twin), so list it by its id: ${G}, ${H}`,
+    'no Bot named Zed in this DSH (bots.Zed), so nobody gets these tools',
+  ]);
+  // A Bot's own stores replace the template's (no memory tools for it).
+  const own = resolveBots(normalizeConfig({ template, bots: { [B]: { memv2: { MEMV2_TOKEN_FILE: tokenFile } } } }), registry);
+  assert.deepEqual(Object.keys(own.bots[B]).filter((k) => ['memory', 'memv2', 'javis'].includes(k)), ['memv2']);
+  // Without a registry, an id-shaped key is an id and a name waits; old configs resolve as before.
+  assert.deepEqual(Object.keys(resolveBots(c, null).bots), [B]);
+  assert.deepEqual(Object.keys(resolveBots(normalizeConfig({ bots }), null).bots), [A, B]);
+
+  const warned = [];
+  const original = console.warn;
+  console.warn = (m) => warned.push(String(m));
+  let tools;
+  try {
+    const h = host(registry);
+    apply(h.ctx, { ...raw, logFile });
+    tools = h.agent(A);
+  } finally {
+    console.warn = original;
+  }
+  assert.deepEqual([...tools.keys()].sort(), ['memory_person', 'memory_read', 'memory_recall', 'memory_search', 'memory_search_raw', 'memory_status']);
+  assert.ok(warned.some((w) => w.includes('no Bot named Zed')));
+  assert.ok(warned.some((w) => w.includes(`missing file bots.${A}.memory.MEMV2_TOKEN_FILE=${join(dir, 'Alpha.token')}`)));
+  assert.equal(new Set(warned).size, warned.length, 'each warning once');
+  ok('template {name}/{slug}, Bots by name, own stores win, unknown and ambiguous names named');
 }
 
 assert.ok(!/"query"/.test(readFileSync(logFile, 'utf8')), 'the log must not hold arguments');

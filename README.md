@@ -111,7 +111,8 @@
 | 字段 | 说明 |
 |---|---|
 | `mode` | `'on'` 或 `'off'`（加引号，免得被当成是/否） |
-| `bots` | 按 Bot 编号列出。编号就是 DSH 主目录下 `botharness/bots/` 里的文件夹名（`bot-` 加 32 位十六进制）。`memory` = 合起来的五个工具（两边的设置都写在里面）；`memv2`、`javis` = 分开的工具，没写的那一组就没有。同一个 Bot 只写 `memory`，或只写 `memv2`/`javis`：两样都写了，只挂 `memory` 那一组，并记一条警告。`off: true` 可以先停用某个 Bot |
+| `bots` | 按 Bot 编号或名字列出。编号就是 DSH 主目录下 `botharness/bots/` 里的文件夹名（`bot-` 加 32 位十六进制）；写名字时插件到 Tobs 里找编号（见下一节）。`memory` = 合起来的五个工具（两边的设置都写在里面）；`memv2`、`javis` = 分开的工具，没写的那一组就没有。同一个 Bot 只写 `memory`，或只写 `memv2`/`javis`：两样都写了，只挂 `memory` 那一组，并记一条警告。`off: true` 可以先停用某个 Bot |
+| `template` | 可选：给没写任何一组工具的 Bot 用的设置，`{name}`、`{slug}` 换成 Bot 的名字和编号（见下一节） |
 | `env` | 每次调用都带上的设置，例如 `MEMORY_OWNER`（工具说明里怎么称呼记忆的主人）、`MEMV2_URL`、`JAVIS_URL`、`MEMORY_LABELS_FILE` |
 | `configFile` | 可选：改用一个 JSON 文件放上面这些字段，改了自动重读，不用重启 |
 | `logFile` | 可选：日志文件路径 |
@@ -121,6 +122,27 @@
 
 只接受 `MEMV2_`、`JAVIS_`、`MEMORY_` 开头的设置；配置里只写路径和设置，不写令牌。
 
+### 按名字列 Bot，用模板生成路径
+
+Bot 多了以后，不用一个个抄编号和路径：
+
+```yaml
+- id: javmem
+  config:
+    mode: 'on'
+    template:
+      memory: { MEMV2_TOKEN_FILE: 'D:\memory\tokens\{name}.token', JAVIS_TOKEN_FILE: 'D:\memory\profiles\{name}.env' }
+    bots:
+      Alpha: {}
+      Beta: { memory: { MEMV2_NAMESPACE: 'beta' } }
+      bot-0123456789abcdef0123456789abcdef: { memv2: { MEMV2_TOKEN_FILE: 'D:\memory\tokens\gamma.token' } }
+```
+
+- `bots` 的键可以是 Bot 编号，也可以是 Bot 的名字：插件到 Tobs 里按名字找编号（大小写和首尾空格不计）。找不到，或者有两个同名的 Bot，会记一条警告，这时请改写编号。
+- `template` 给没写任何一组工具的 Bot 用：`{name}` 换成 Bot 的名字（路径里不能用的字符，如 `/`、`:`，换成 `_`），`{slug}` 换成编号。上例 Alpha 的令牌文件就是 `D:\memory\tokens\Alpha.token`。
+- Bot 自己写了哪一组，就只用它自己写的那几组，不用模板的组（上例第三个 Bot 只有 `memv2`）；同一组里，模板的设置垫底，Bot 自己写的盖在上面（上例 Beta 用模板的两个文件，再加自己的 `MEMV2_NAMESPACE`）。
+- 旧写法（编号加完整设置）照样能用。
+
 ### 配置写错了会怎样
 
 插件照常加载，能用的部分照常用；每个错处记一行警告，写进 `logFile`，也打到 DSH 的错误输出里。插件启动和每次重读配置时都会检查一遍。警告只写键名和路径，不写设置的值，也不写令牌。会提醒的有：
@@ -129,7 +151,7 @@
 - 被丢掉的设置：不是 `MEMV2_`、`JAVIS_`、`MEMORY_` 开头的，或者值不是文字的；
 - 不认识的字段，例如把 `mode` 写成了 `moode`，或者在 `configFile` 里写了只能写在 `cordis.patch.yml` 里的字段；
 - 找不到的文件：令牌文件、Javis 配置文件里 `JAVIS_TOKEN_FROM` 指的令牌文件、隐藏名单、判定文件、标签文件、`configFile` 本身；
-- 这台 DSH 的 Tobs 里没有的 Bot 编号；`mode` 既不是 `'on'` 也不是 `'off'`；Bot 一组工具都没写。
+- 这台 DSH 的 Tobs 里没有的 Bot 编号或名字，有两个同名 Bot 的名字，同一个 Bot 写了两次；`mode` 既不是 `'on'` 也不是 `'off'`；Bot 一组工具都没写、也没有模板可用。
 
 ## 和私有 MCP 一起用
 
