@@ -1,5 +1,13 @@
 # 更新记录 / Changelog
 
+## 0.4.0（未发布 / unreleased）
+
+- 别的工具导出的原始会话（ChatGPT、Claude、Claude Code、Codex、1.2 版记忆包）放进 Bot 的继承文件夹，补录时导进这个 Bot 的本地库，标「导入自 某工具」，同一个文件只导一次；附带 javmem-mcp 的 `history.js`。README 的「为什么是 javmem」第 2 条补全。
+
+English:
+
+- Original conversations exported from other tools (ChatGPT, Claude, Claude Code, Codex, 1.2 memory packages) in a Bot's inherit folder go into its local store on the next pass, marked as imported from that tool, each file once; bundles javmem-mcp's `history.js`. Point 2 of "Why javmem" in full.
+
 ## 0.3.0（2026-11-06）
 
 - 版本号：启动日志和 MCP 握手里报的都是 `package.json` 的版本；附带的服务报 javmem-mcp 的版本（记在 `mcp/package.json`，由 `scripts/vendor-mcp.mjs` 写入）。

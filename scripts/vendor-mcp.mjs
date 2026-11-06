@@ -9,9 +9,9 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const mcp = join(here, '..', 'mcp');
 // graphiti.js: javis-mcp's backend for the official Graphiti server; feed.js: what sends a Bot's conversations to
-// memv2-lite and Graphiti (backends memv2, graphiti and full).
+// memv2-lite and Graphiti (backends memv2, graphiti and full); history.js: other tools' exported conversations.
 const FILES = ['memory-mcp.js', 'memv2-mcp.js', 'javis-mcp.js', 'demo.js', 'local-mcp.js', 'local-store.js', 'inherit.js',
-  'graphiti.js', 'feed.js'];
+  'graphiti.js', 'feed.js', 'history.js'];
 const DIRS = ['demo']; // the made-up demo data for MEMV2_URL=demo and JAVIS_URL=demo
 
 const from = process.argv[2];

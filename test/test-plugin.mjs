@@ -606,6 +606,10 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   const inbox = join(home, 'javmem', 'inherit', 'India');
   mkdirSync(inbox, { recursive: true });
   writeFileSync(join(inbox, 'grok.json'), readFileSync(new URL('../mcp/demo/inherit-grok.json', import.meta.url), 'utf8'));
+  // Original conversations exported from other tools go in the same folder (item 20).
+  for (const f of ['chatgpt-conversations.json', 'codex-rollout.jsonl']) {
+    writeFileSync(join(inbox, f), readFileSync(new URL(`../mcp/demo/history/${f}`, import.meta.url), 'utf8'));
+  }
   const registry = { get: (s) => ({ [I]: { slug: I, name: 'India' }, [J]: { slug: J, name: 'Juliet' } })[s], list: () => [], memoryDirFor: () => undefined };
   let clock = Date.parse('2026-11-06T09:00:00Z');
   const h = host(registry, { rootDir: join(home, 'botharness') });
@@ -613,11 +617,14 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   const i = h.agent(I);
   const found = await run(i.get('memory_search'), { query: '樱花' });
   assert.match(found, /记下的事实：小明想明年春天带全家去日本看樱花（时间：去年冬天）（计划）（拿不准：具体哪个月没说）（继承自 Grok，2026-10-30 导出，消息号 m\d+）/);
+  assert.match(await run(i.get('memory_search'), { query: '出库脚本' }), /用户：老陈下个月调去深圳，仓储系统的出库脚本要交接给我[\s\S]*导入自 Codex/);
+  assert.match(await run(i.get('memory_search_raw'), { query: '缴费单' }), /这是缴费单的照片，周三下午去交。[\s\S]*导入自 ChatGPT/);
   clock += 61000;
   await run(i.get('memory_search'), { query: '樱花' });
-  assert.match(await run(i.get('memory_status'), {}), /继承来的 5 条（1 个包）/, 'imported once');
+  const st = await run(i.get('memory_status'), {});
+  assert.match(st, /继承来的 5 条（1 个包）；导入的历史 2 段对话、5 条/, 'imported once');
   assert.match(await run(h.agent(J).get('memory_search'), { query: '樱花' }), /本地记忆库里还没有内容|没有找到/);
-  ok('inherited memory: a package in the Bot\'s inherit folder is taken in once, marked, for that Bot only');
+  ok('inherited memory: a package and other tools\' exported conversations in the Bot\'s inherit folder, taken in once, marked, for that Bot only');
 }
 
 // 20. Backends B, C and A (backend memv2, graphiti, full, item 13): a listed Bot that names no store gets memv2-lite's

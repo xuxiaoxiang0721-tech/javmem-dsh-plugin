@@ -72,19 +72,30 @@ function titleOf(events) {
 }
 
 /**
- * Memory inherited from other tools: javmem packages (javmem-inherit) dropped into one of the Bot's inherit folders
- * are added to its store, each file once (by its content hash). Returns how many messages were added.
+ * Memory from other tools dropped into one of the Bot's inherit folders: original conversations exported from
+ * ChatGPT, Claude, Claude Code, Codex or as 1.2 memory packages (javmem-mcp's history.js), and javmem packages
+ * (javmem-inherit). Each file once (by its content hash); a longer export of the same conversations adds only the
+ * new messages. Returns how many messages were added.
  */
 function importInbox(store, dirs, log, slug) {
   const { importPackage } = require('./mcp/inherit.js');
+  const history = require('./mcp/history.js');
   let added = 0;
   for (const dir of dirs) {
     if (!dir || !existsSync(dir)) continue;
-    for (const file of readdirSync(dir).filter((f) => ['.json', '.txt', '.md'].includes(extname(f).toLowerCase())).sort()) {
+    for (const file of readdirSync(dir).filter((f) => ['.json', '.jsonl', '.txt', '.md'].includes(extname(f).toLowerCase())).sort()) {
       let text;
       try { text = readFileSync(join(dir, file), 'utf8'); } catch { continue; }
       const hash = createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16);
       if (store.meta(`inherited:${hash}`)) continue;
+      let h = null;
+      try { h = history.importExport(store, join(dir, file)); } catch { h = null; }
+      if (h) {
+        added += h.added;
+        store.meta(`inherited:${hash}`, new Date().toISOString());
+        log(`history bot=${slug} file=${file} tool=${h.tool} conversations=${h.conversations} added=${h.added}`);
+        continue;
+      }
       const r = importPackage(store, text);
       added += r.added;
       if (!r.pkg.facts.length && !r.pkg.conversations.length) store.meta(`inherited:${hash}`, 'unusable');
