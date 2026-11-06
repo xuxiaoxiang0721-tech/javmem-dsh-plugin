@@ -2,6 +2,15 @@
 
 DeepSeek Harness（Tobs）插件：给你列出的 Bot 挂上只读的记忆工具，数据来自 memv2（事实记忆）和 Javis（Graphiti 记忆图谱）。不用给每个 Bot 单独接私有 MCP、填卡片、点批准；在配置里加一个 Bot，它从下一个会话起就有记忆。
 
+记忆工具本身来自 [javmem-mcp](https://github.com/xuxiaoxiang0721-tech/javmem-mcp)，已经随包附带在 `mcp/` 里，不用另装。本插件不含 memv2 和 Javis 两个库本身，要你自己先装好。
+
+## 快速开始
+
+1. 准备：DeepSeek Harness 0.2.1 以上（带 Tobs）；memv2 和 Javis 在跑，每个要接记忆的 Bot 有自己的 memv2 只读令牌文件和 Javis 配置文件（格式见 javmem-mcp 的说明）。
+2. 安装：在 DSH 网页的插件页里按仓库地址 `https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin` 安装；或者用命令 `dsh plugin --profile web add git+https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin.git`。装好后插件是关着的，不会给任何 Bot 挂工具。
+3. 打开：在你的 profile 的 `cordis.patch.yml` 里按 id `javmem` 覆盖这一行，写上 `mode: 'on'` 和要接记忆的 Bot（见下文「配置」）。DSH 读到改动后，这些 Bot 新开的会话就有记忆工具。
+4. 自测（可选）：在仓库目录运行 `node test/test-plugin.mjs`，不需要两个库在跑。
+
 ## 装上以后 Bot 能用的工具
 
 每个 Bot 二选一：合起来的一个工具（推荐），或者两个库分开的工具。
@@ -46,7 +55,7 @@ DeepSeek Harness（Tobs）插件：给你列出的 Bot 挂上只读的记忆工�
 
 ## 安装
 
-- DSH 网页的插件页里，按仓库地址或本地路径安装；或者用命令：`dsh plugin --profile web add <仓库地址或路径>`。
+- DSH 网页的插件页里，按仓库地址 `https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin` 或本地路径安装；或者用命令：`dsh plugin --profile web add git+https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin.git`（本地路径也行）。
 - 装好后插件是关着的（`mode: 'off'`），不会给任何 Bot 挂工具。
 
 ## 配置
@@ -107,4 +116,4 @@ node test/test-plugin.mjs
 
 ## English summary
 
-A DeepSeek Harness (Tobs) plugin that gives the Bots you list read-only memory tools from memv2 (fact memory) and Javis (Graphiti memory graph), with no per-Bot private MCP card. It hooks Tobs's per-Bot agent setup (`contributeBotAgentSetup`, front desk and Assignments) and registers `memv2_*` and `javis_*` tools whose text comes from the bundled MCP servers (`mcp/`, copied from javmem-mcp). Each call starts the server with that Bot's own token file or profile plus the shared `env`, so each Bot sees what its credentials allow. It ships with `mode: 'off'`; override the `javmem` row in your profile's `cordis.patch.yml` with `mode`, `env` and `bots` (slugs are the folder names under `<DSH home>/botharness/bots`). Setup errors are logged and never block a session. Tests: `node test/test-plugin.mjs`. License: to be decided.
+A DeepSeek Harness (Tobs) plugin that gives the Bots you list read-only memory tools from memv2 (fact memory) and Javis (Graphiti memory graph), with no per-Bot private MCP card. It hooks Tobs's per-Bot agent setup (`contributeBotAgentSetup`, front desk and Assignments) and registers `memv2_*` and `javis_*` tools whose text comes from the bundled MCP servers (`mcp/`, copied from javmem-mcp). Each call starts the server with that Bot's own token file or profile plus the shared `env`, so each Bot sees what its credentials allow. Install from `https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin` (DSH Plugins page, or `dsh plugin --profile web add git+https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin.git`). It ships with `mode: 'off'`; override the `javmem` row in your profile's `cordis.patch.yml` with `mode`, `env` and `bots` (slugs are the folder names under `<DSH home>/botharness/bots`). Setup errors are logged and never block a session. Tests: `node test/test-plugin.mjs`. License: to be decided.
