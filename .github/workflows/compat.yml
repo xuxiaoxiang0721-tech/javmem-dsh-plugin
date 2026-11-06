@@ -1,0 +1,40 @@
+# Every day, and on every push and pull request: the plugin's tests against the DSH versions on npm's latest and next
+# tags. @deepseek-ai/dsh-tools (the one DSH package the plugin imports) is installed at that DSH version, because its
+# own latest tag lags behind; scripts/check-compat.mjs checks that the declared engines.dsh and peer ranges admit it.
+# It goes into the folder above the checkout, as in a DSH install where node_modules sits above the plugin: npm skips a
+# package that the project's own package.json lists as a peer when it is installed into the project itself.
+name: compat
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: DSH ${{ matrix.dsh }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dsh: [latest, next]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Resolve the DSH version
+        id: dsh
+        run: echo "version=$(npm view @deepseek-ai/dsh@${{ matrix.dsh }} version)" >> "$GITHUB_OUTPUT"
+      - name: Install @deepseek-ai/dsh-tools ${{ steps.dsh.outputs.version }}
+        run: npm install --prefix .. --no-save --no-package-lock semver "@deepseek-ai/dsh-tools@${{ steps.dsh.outputs.version }}"
+      - name: Declared ranges admit DSH ${{ steps.dsh.outputs.version }}
+        run: node scripts/check-compat.mjs "${{ steps.dsh.outputs.version }}"
+      - name: Tests
+        run: node test/test-plugin.mjs

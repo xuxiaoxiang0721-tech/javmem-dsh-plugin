@@ -6,7 +6,7 @@ DeepSeek Harness（Tobs）插件：给你列出的 Bot 挂上只读的记忆工�
 
 ## 快速开始
 
-1. 准备：DeepSeek Harness 0.2.1 以上（带 Tobs）；memv2 和 Javis 在跑，每个要接记忆的 Bot 有自己的 memv2 只读令牌文件和 Javis 配置文件（格式见 javmem-mcp 的说明）。
+1. 准备：DeepSeek Harness 0.2.1-rc.3 以上、1.0 以下（带 Tobs）；memv2 和 Javis 在跑，每个要接记忆的 Bot 有自己的 memv2 只读令牌文件和 Javis 配置文件（格式见 javmem-mcp 的说明）。
 2. 安装：在 DSH 网页的插件页里按仓库地址 `https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin` 安装；或者用命令 `dsh plugin --profile web add git+https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin.git`。装好后插件是关着的，不会给任何 Bot 挂工具。
 3. 打开：在你的 profile 的 `cordis.patch.yml` 里按 id `javmem` 覆盖这一行，写上 `mode: 'on'` 和要接记忆的 Bot（见下文「配置」）。DSH 读到改动后，这些 Bot 新开的会话就有记忆工具。
 4. 自测（可选）：在仓库目录运行 `node test/test-plugin.mjs`，不需要两个库在跑。
@@ -51,7 +51,7 @@ DeepSeek Harness（Tobs）插件：给你列出的 Bot 挂上只读的记忆工�
 
 插件自己不存记忆，只负责替 Bot 去两个记忆库里查，所以用之前要先有这几样：
 
-- DeepSeek Harness 0.2.1 以上，装了 Tobs（`@botharness/core`）。
+- DeepSeek Harness 0.2.1-rc.3 以上、1.0 以下，装了 Tobs（`@botharness/core`）。GitHub Actions 每天用 npm 上 DSH 的 latest 和 next 两个版本各跑一遍测试（`.github/workflows/compat.yml`）；`node scripts/check-compat.mjs <DSH 版本>` 可以查某个版本在不在支持范围里。
 - **memv2 在运行**，插件要知道它的地址（默认 `http://127.0.0.1:8766`，即本机的 8766 端口）。每个 Bot 还要一个只读令牌，相当于这个 Bot 的借阅证：由 memv2 的管理员发，发的时候就定好它能查哪些分区。令牌存在一个文件里，配置里只写这个文件的路径。
 - **Javis 在运行**，插件要知道它的地址（默认 `http://127.0.0.1:8765/mcp`）。每个 Bot 一个配置文件，写明它能看哪些账号、Javis 的令牌存在哪个文件（格式见 javmem-mcp 的说明）。
 

@@ -19,14 +19,15 @@
   ],
   "scripts": {
     "test": "node test/test-plugin.mjs",
-    "catalog": "node scripts/make-catalog.mjs"
+    "catalog": "node scripts/make-catalog.mjs",
+    "compat": "node scripts/check-compat.mjs"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.3 <0.3.0-0 || >=0.2.2-0 <0.3.0-0"
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.3 <1.0.0-0 || >=0.2.2-0 <1.0.0-0 || >=0.2.3-0 <1.0.0-0 || >=0.3.0-0 <1.0.0-0"
   },
   "engines": {
     "node": ">=24",
-    "dsh": ">=0.2.1-rc.3 <0.3.0-0"
+    "dsh": ">=0.2.1-rc.3 <1.0.0-0"
   },
   "dsh": {
     "manifestVersion": 1,
