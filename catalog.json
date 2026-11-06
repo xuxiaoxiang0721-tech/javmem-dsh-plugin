@@ -1,0 +1,206 @@
+{
+ "memv2": [
+  {
+   "name": "recall",
+   "description": "按这一轮的话题取回 memv2 里相关的记忆（只取当前有效的），每条一行：日期、事实、命名空间，附使用说明。快，适合每轮先查一下。",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string",
+      "description": "要回忆的内容，用自然语言写，最多 4000 字"
+     },
+     "max_chars": {
+      "type": "integer",
+      "minimum": 200,
+      "maximum": 6000,
+      "description": "结果总字数上限，默认 1500"
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "search",
+   "description": "在 memv2 里深入搜索：按相关度排列；给了 entity 就按时间顺序列出这个人或这件事的来龙去脉。可以按时间范围筛，也可以带上已被后来说法取代的旧记录。每条带记录号，可以用 read_record 看原文。",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string",
+      "description": "要找的内容；只按 entity 查时可以留空"
+     },
+     "entity": {
+      "type": "string",
+      "description": "人名、公司名等，最多 64 字；给了就按时间顺序列出"
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "最多几条，默认 20"
+     },
+     "include_superseded": {
+      "type": "boolean",
+      "description": "是否带上已被后来说法取代的旧记录，默认否"
+     },
+     "time_from": {
+      "type": "string",
+      "description": "起始时间，ISO 格式，如 2026-01-01"
+     },
+     "time_to": {
+      "type": "string",
+      "description": "截止时间，ISO 格式，如 2026-10-31"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "search_raw",
+   "description": "按关键词在 memv2 存的原文里找（用户以前和 AI 的对话），每条给日期、记录号和一小段原话；要看全文用 read_record。问以前聊没聊过、原话怎么说时用。不调用模型。",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string",
+      "description": "关键词，多个词用空格隔开，最多 200 字"
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "description": "最多几条，默认 8"
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "read_record",
+   "description": "按记录号读 memv2 里的一条记录（含来源和原文），用来核对 search 结果的出处。",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "record_key": {
+      "type": "string",
+      "description": "search 结果里的记录号"
+     }
+    },
+    "required": [
+     "record_key"
+    ],
+    "additionalProperties": false
+   }
+  }
+ ],
+ "javis": [
+  {
+   "name": "search_memory",
+   "description": "在 Javis 里查人和事的关系、事实（从用户以前和 AI 的对话里自动抽出来的），每条带时间、来源对话和实体号。query 写成简短关键词（人名、公司名、事情），按关键词查。",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string",
+      "description": "关键词，最多 200 字"
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "description": "最多几条，默认 8"
+     },
+     "include_history": {
+      "type": "boolean",
+      "description": "是否带上已失效、已过期的旧事实，默认否"
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_entity",
+   "description": "按 search_memory 结果里的实体号，看这个人或这件事的摘要和全部关系（含已失效的，带时间）。",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "entity_uuid": {
+      "type": "string",
+      "description": "search_memory 结果里的实体号"
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 30,
+      "description": "最多几条关系，默认 15"
+     }
+    },
+    "required": [
+     "entity_uuid"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "find_sessions",
+   "description": "按关键词在以前对话的原文里找，每条给对话号、时间、标题和一小段原话。不调用模型。",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string",
+      "description": "关键词，多个词用空格隔开，最多 200 字"
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "description": "最多几条，默认 8"
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_conversation",
+   "description": "按 find_sessions 结果里的对话号，分页读整段对话原文。每页默认 6 条，每条最多 1000 字；还有后面的内容时，结果最后会给出下一页的 offset。",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "session_id": {
+      "type": "string",
+      "description": "find_sessions 结果里的对话号"
+     },
+     "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "从第几条开始，默认 0"
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 12,
+      "description": "这一页最多几条，默认 6"
+     }
+    },
+    "required": [
+     "session_id"
+    ],
+    "additionalProperties": false
+   }
+  }
+ ]
+}

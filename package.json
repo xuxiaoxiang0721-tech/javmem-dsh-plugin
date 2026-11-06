@@ -1,0 +1,44 @@
+{
+  "name": "dsh-plugin-two-memory",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness (Tobs) plugin: read-only memory tools from memv2 and Javis for the Bots you list, with no per-Bot private MCP card.",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "catalog.json",
+    "cordis.patch.yml",
+    "mcp/",
+    "scripts/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node test/test-plugin.mjs",
+    "catalog": "node scripts/make-catalog.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "*"
+  },
+  "engines": {
+    "node": ">=24",
+    "dsh": ">=0.2.1-rc.3"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "tobs",
+    "memory",
+    "mcp",
+    "memv2",
+    "graphiti"
+  ]
+}

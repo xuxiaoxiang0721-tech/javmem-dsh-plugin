@@ -1,0 +1,6 @@
+node_modules/
+*.log
+*.token
+.env
+.env.*
+memory-plugin.json
