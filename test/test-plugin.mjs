@@ -2,11 +2,11 @@
 // servers pointed at a closed port, so no memv2 or Javis is needed.
 //   node test/test-plugin.mjs
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { apply, callServer, DEFAULTS, fileProblems, normalizeConfig, parameters, resolveBots, VERSION } from '../index.mjs';
+import { apply, callServer, createPool, DEFAULTS, fileProblems, normalizeConfig, parameters, resolveBots, VERSION } from '../index.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'javmem-dsh-plugin-'));
 const A = 'bot-0123456789abcdef0123456789abcdef';
@@ -338,6 +338,59 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   assert.ok(warned.some((w) => w.includes(`missing file bots.${A}.memory.MEMV2_TOKEN_FILE=${join(dir, 'Alpha.token')}`)));
   assert.equal(new Set(warned).size, warned.length, 'each warning once');
   ok('template {name}/{slug}, Bots by name, own stores win, unknown and ambiguous names named');
+}
+
+// 13. Long-lived server processes: one per script and env (so per Bot and store), reused call after call; another env
+//     gets another process; at the cap the least recently used idle one is stopped; idle ones exit; a process that
+//     dies mid-call is replaced and the call tried once more; a call that hangs times out and its process is replaced.
+{
+  const script = join(scratch, 'pool-server.cjs');
+  writeFileSync(script, [
+    "const fs = require('fs');",
+    "let n = 0;",
+    "require('readline').createInterface({ input: process.stdin }).on('line', (line) => {",
+    "  const m = JSON.parse(line);",
+    "  const answer = (result) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }) + '\\n');",
+    "  if (m.method === 'initialize') return answer({ protocolVersion: m.params.protocolVersion, capabilities: {}, serverInfo: { name: 'pool', version: '0' } });",
+    "  if (m.method !== 'tools/call') return;",
+    "  const text = (t) => answer({ content: [{ type: 'text', text: String(t) }] });",
+    "  n += 1;",
+    "  if (m.params.name === 'pid') return text(process.pid + ':' + (process.env.MEMORY_TAG || '') + ':' + n);",
+    "  if (m.params.name === 'crash-once') {",
+    "    if (!fs.existsSync(process.env.MEMORY_MARK)) { fs.writeFileSync(process.env.MEMORY_MARK, 'x'); process.exit(3); }",
+    "    return text(process.pid);",
+    "  }",
+    "  // 'hang': never answers",
+    "});",
+  ].join('\n'));
+  const lines = [];
+  const pool = createPool({ idleMs: 300, max: 2, log: (l) => lines.push(l) });
+  const ask = async (tag, tool = 'pid', extra = {}, timeoutMs = 10000) =>
+    (await pool.call(script, { MEMORY_TAG: tag, ...extra }, tool, {}, { timeoutMs, label: `bot="${tag}" store=t` })).content[0].text;
+  const pidOf = (text) => Number(text.split(':')[0]);
+  const a1 = await ask('a');
+  const a2 = await ask('a');
+  assert.equal(pidOf(a1), pidOf(a2));
+  assert.equal(a2.split(':')[2], '2');
+  const b1 = await ask('b');
+  assert.notEqual(pidOf(b1), pidOf(a1));
+  assert.equal(pool.size(), 2);
+  await ask('c'); // the cap is 2: a, the least recently used idle one, makes room
+  assert.equal(pool.size(), 2);
+  assert.ok(!pool.pids().includes(pidOf(a1)));
+  assert.ok(lines.some((l) => l === `process stop bot="a" store=t pid=${pidOf(a1)} reason=cap`));
+  await new Promise((r) => setTimeout(r, 700));
+  assert.equal(pool.size(), 0, 'idle processes exit');
+  const mark = join(scratch, 'crash.mark');
+  const survivor = Number(await ask('d', 'crash-once', { MEMORY_MARK: mark }));
+  assert.ok(existsSync(mark) && survivor > 0, 'the call came back from a fresh process after the crash');
+  assert.ok(lines.some((l) => /^process exited bot="d" store=t pid=\d+ code 3$/.test(l)));
+  await assert.rejects(() => ask('e', 'hang', {}, 300), /timeout/);
+  const e2 = await ask('e');
+  assert.ok(pidOf(e2) > 0 && e2.endsWith(':1'), 'a fresh process after the timeout');
+  pool.close();
+  assert.equal(pool.size(), 0);
+  ok('server processes: reuse per env, cap, idle exit, restart after a crash, replace after a timeout');
 }
 
 assert.ok(!/"query"/.test(readFileSync(logFile, 'utf8')), 'the log must not hold arguments');

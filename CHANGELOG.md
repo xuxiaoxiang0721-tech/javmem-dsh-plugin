@@ -9,6 +9,7 @@
 - 新工具 `memory_status`：这个 Bot 挂了哪些记忆工具、每个库连不连得上、令牌能不能用、文件在不在、配置提醒、最近几次调用的耗时；不显示令牌和记忆内容（`statusTool: false` 可关）。
 - README：开头一句话说清是什么，写明适合谁、不适合谁，三种装法（npm、Release 安装包、git）；英文版 `README.en.md` 和中文版内容对等；npm、CI、许可证徽章。
 - 按名字列 Bot、用模板生成路径：`bots` 的键可以写 Bot 名字（插件到 Tobs 里找编号）；`template` 里的 `{name}`、`{slug}` 换成 Bot 的名字和编号。旧写法照样能用。
+- 常驻进程：每个 Bot 的每个库一个常驻 MCP 进程，空闲 5 分钟退出，最多同时 8 个，进程中途退出就换新的再试一次。连续调用平均从 54.6 毫秒降到 4.2 毫秒一次（`scripts/bench-calls.mjs`）。`keepAlive: false` 回到每次新起进程。
 
 English:
 
@@ -19,6 +20,7 @@ English:
 - New tool `memory_status`: the Bot's memory tools, whether each store answers and takes its token, its files, its config warnings and its last calls' times; no token and no memory text (`statusTool: false` turns it off).
 - README: a one-line pitch, who it is for and not for, three ways to install (npm, Release tarball, git); `README.en.md` in English with the same content as the Chinese one; npm, CI and licence badges.
 - Bots by name, paths from a template: a key in `bots` may be a Bot name (the plugin finds its id in Tobs); `{name}` and `{slug}` in `template` become the Bot's name and id. The old form still works.
+- Long-lived processes: one MCP server process per Bot and store, stopped after 5 idle minutes, at most 8 at once, replaced and the call retried once when it dies mid-call. Consecutive calls went from 54.6 ms to 4.2 ms each on average (`scripts/bench-calls.mjs`). `keepAlive: false` goes back to a process per call.
 
 ## 0.2.2
 

@@ -30,8 +30,12 @@
 //   statusTool  the name of the status tool every listed Bot also gets (default memory_status; false = none): its
 //            tools, each store's state, its files, its config warnings and its last calls' times, no token and no
 //            memory text
+//   keepAlive, idleMs, maxProcesses  each Bot and store keeps one server process (keepAlive, default true; false =
+//            one process per call): it exits after idleMs without calls (default 300000), at most maxProcesses run at
+//            once (default 8; the least recently used idle one makes room, and when all are busy a call gets a one-off
+//            process), and a process that dies mid-call is replaced and the call tried once more
 //   configFile, catalogFile, logFile, callMs (logFile: optional; one line per call with bot, tool, milliseconds and
-//            answer size, never arguments or memory text)
+//            answer size, never arguments or memory text; process start, stop and exit lines)
 import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -55,6 +59,9 @@ export const DEFAULTS = {
   prefix: { memv2: 'memv2_', javis: 'javis_', memory: 'memory_' },
   statusTool: 'memory_status',
   callMs: 120000,
+  keepAlive: true,
+  idleMs: 300000,
+  maxProcesses: 8,
 };
 // memory = the combined server (both stores in five tools); memv2 and javis = the single-store servers.
 const STORES = ['memv2', 'javis', 'memory'];
@@ -71,7 +78,8 @@ function logger(file) {
 // Fields a config may carry: FILE_FIELDS in a configFile or the row, ROW_FIELDS only in the cordis row (call and now
 // are for tests), BOT_FIELDS in one Bot's entry.
 const FILE_FIELDS = ['mode', 'bots', 'env', 'template'];
-const ROW_FIELDS = ['configFile', 'catalogFile', 'logFile', 'callMs', 'prefix', 'servers', 'statusTool', 'call', 'now'];
+const ROW_FIELDS = ['configFile', 'catalogFile', 'logFile', 'callMs', 'prefix', 'servers', 'statusTool',
+  'keepAlive', 'idleMs', 'maxProcesses', 'call', 'now'];
 const BOT_FIELDS = ['name', 'off', ...STORES];
 // Tobs's own pattern for a Bot id (slug).
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -376,7 +384,158 @@ export function callServer(script, env, tool, args, { signal, timeoutMs = DEFAUL
   });
 }
 
-const catalogKey = (c) => JSON.stringify(STORES.map((s) => (c[s] || []).map((t) => [t.name, t.description, t.inputSchema])));
+const childEnv = (env) => ({ ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !OWN_ENV.test(k))), ...env });
+const gone = (reason) => Object.assign(new Error(`server exited (${reason})`), { gone: true });
+
+/**
+ * One long-lived MCP server process for one script and one env, so for one Bot and one store: the handshake once,
+ * then any number of requests, several at a time. Its handles are unref'd, so it never keeps the host running by
+ * itself; a request's own timer does while it waits.
+ */
+class Server {
+  constructor(script, env, onExit) {
+    this.pending = new Map();
+    this.nextId = 2;
+    this.closing = false;
+    this.child = spawn(process.execPath, [script], { env: childEnv(env), stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+    this.pid = this.child.pid;
+    for (const handle of [this.child, this.child.stdin, this.child.stdout]) handle?.unref?.();
+    let buffer = '';
+    this.child.stdout.setEncoding('utf8');
+    this.child.stdout.on('data', (chunk) => {
+      buffer += chunk;
+      for (let i = buffer.indexOf('\n'); i >= 0; i = buffer.indexOf('\n')) {
+        const line = buffer.slice(0, i).trim();
+        buffer = buffer.slice(i + 1);
+        if (!line) continue;
+        let msg;
+        try { msg = JSON.parse(line); } catch { continue; }
+        const waiting = this.pending.get(msg.id);
+        if (waiting) waiting(msg.error ? new Error(msg.error.message || 'call failed') : null, msg.result);
+      }
+    });
+    const end = (reason) => {
+      if (this.reason) return;
+      this.reason = reason;
+      for (const waiting of [...this.pending.values()]) waiting(gone(reason));
+      onExit(this, reason);
+    };
+    this.child.on('exit', (code) => end(`code ${code}`));
+    this.child.on('error', (e) => end(e?.code || 'spawn failed'));
+    this.child.stdin.on('error', () => { /* a write after the server died; exit tells */ });
+    this.ready = this.request('initialize', {
+      protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name, version: VERSION } }, 30000)
+      .then(() => this.write({ jsonrpc: '2.0', method: 'notifications/initialized' }));
+    this.ready.catch(() => { /* each caller sees it */ });
+  }
+
+  get usable() { return !this.reason && !this.closing; }
+
+  write(msg) {
+    try { this.child.stdin.write(`${JSON.stringify(msg)}\n`); } catch { /* exit tells */ }
+  }
+
+  /** One JSON-RPC request; a timeout also ends the process, since a server that hangs once may hang again. */
+  request(method, params, timeoutMs, signal) {
+    return new Promise((resolve, reject) => {
+      if (this.reason) { reject(gone(this.reason)); return; }
+      if (signal?.aborted) { reject(new Error('cancelled')); return; }
+      const id = method === 'initialize' ? 1 : this.nextId++;
+      let timer;
+      const onAbort = () => settle(new Error('cancelled'));
+      const settle = (error, value) => {
+        if (!this.pending.has(id)) return;
+        this.pending.delete(id);
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+        if (error) reject(error); else resolve(value);
+      };
+      this.pending.set(id, settle);
+      timer = setTimeout(() => { settle(new Error('timeout')); this.stop(); }, timeoutMs);
+      signal?.addEventListener('abort', onAbort, { once: true });
+      this.write({ jsonrpc: '2.0', id, method, params });
+    });
+  }
+
+  /** Close stdin (the server answers what it holds, then exits); kill it if it is still there 3 seconds later. */
+  stop() {
+    if (this.closing) return;
+    this.closing = true;
+    try { this.child.stdin.end(); } catch { /* closed */ }
+    const killer = setTimeout(() => { try { this.child.kill(); } catch { /* gone */ } }, 3000);
+    killer.unref?.();
+  }
+}
+
+/**
+ * Long-lived server processes, one per script and env (per Bot and store, so Bots stay apart), with callServer's
+ * signature. An idle process exits after idleMs. At max processes the least recently used idle one is stopped to make
+ * room; when every one is busy the call runs in a one-off process. A process that dies before it answers is replaced
+ * and the call is tried once more on the new one; a call that times out ends its process.
+ */
+export function createPool({ idleMs = DEFAULTS.idleMs, max = DEFAULTS.maxProcesses, log = () => {} } = {}) {
+  const servers = new Map(); // key -> Server
+  const keyOf = (script, env) => `${script}\n${JSON.stringify(Object.keys(env).sort().map((k) => [k, env[k]]))}`;
+  const retire = (server, reason) => {
+    clearTimeout(server.idle);
+    if (servers.get(server.key) === server) servers.delete(server.key);
+    if (server.usable) log(`process stop ${server.label} pid=${server.pid} reason=${reason}`);
+    server.stop();
+  };
+  const idleLater = (server) => {
+    server.used = Date.now();
+    clearTimeout(server.idle);
+    if (!server.usable || server.pending.size) return;
+    server.idle = setTimeout(() => retire(server, 'idle'), idleMs);
+    server.idle.unref?.();
+  };
+  const get = (script, env, label) => {
+    const key = keyOf(script, env);
+    const have = servers.get(key);
+    if (have?.usable) {
+      clearTimeout(have.idle);
+      return have;
+    }
+    if (servers.size >= max) {
+      const idle = [...servers.values()].filter((s) => !s.pending.size).sort((a, b) => a.used - b.used)[0];
+      if (!idle) return null;
+      retire(idle, 'cap');
+    }
+    const server = new Server(script, env, (s, reason) => {
+      if (servers.get(s.key) === s) servers.delete(s.key);
+      if (!s.closing) log(`process exited ${s.label} pid=${s.pid} ${reason}`);
+    });
+    Object.assign(server, { key, label: label || 'server', used: Date.now() });
+    servers.set(key, server);
+    log(`process start ${server.label} pid=${server.pid}`);
+    return server;
+  };
+  async function call(script, env, tool, args, { signal, timeoutMs = DEFAULTS.callMs, method, label } = {}) {
+    const [m, params] = method ? [method, args ?? {}]
+      : tool === null ? ['tools/list', {}] : ['tools/call', { name: tool, arguments: args ?? {} }];
+    for (let attempt = 0; ; attempt += 1) {
+      const server = get(script, env || {}, label);
+      if (!server) return callServer(script, env, tool, args, { signal, timeoutMs, method });
+      try {
+        await server.ready;
+        return await server.request(m, params, timeoutMs, signal);
+      } catch (e) {
+        if (e?.gone && attempt === 0 && !signal?.aborted) continue;
+        throw e;
+      } finally {
+        idleLater(server);
+      }
+    }
+  }
+  return {
+    call,
+    size: () => servers.size,
+    pids: () => [...servers.values()].map((s) => s.pid),
+    close: () => { for (const s of [...servers.values()]) retire(s, 'closed'); },
+  };
+}
+
+const catalogKey =(c) => JSON.stringify(STORES.map((s) => (c[s] || []).map((t) => [t.name, t.description, t.inputSchema])));
 
 function readCatalog(file) {
   try {
@@ -405,7 +564,7 @@ function toolFor(store, t, who, deps) {
       let result;
       try {
         result = await opts.call(opts.servers[store], { ...sharedEnv(), ...who.bot[store] }, t.name, args,
-          { signal: exec?.signal, timeoutMs: opts.callMs });
+          { signal: exec?.signal, timeoutMs: opts.callMs, label: `bot="${who.bot.name}" store=${store}` });
       } catch (e) {
         const ms = Date.now() - started;
         record(who.slug, { tool: toolName, ms, ok: false });
@@ -455,7 +614,8 @@ function statusTool(who, deps) {
         names.length ? `挂上的记忆工具（${names.length} 个）：${names.join('、')}。` : '这个 Bot 没挂任何记忆工具（配置里没写 memory、memv2 或 javis）。'];
       const stores = STORES.filter((s) => bot[s]);
       const answers = await Promise.all(stores.map((s) => opts.call(opts.servers[s], { ...sharedEnv(), ...bot[s] }, null, {},
-        { method: 'javmem/status', signal: exec?.signal, timeoutMs: 20000 }).then((r) => ({ s, r }), (e) => ({ s, e }))));
+        { method: 'javmem/status', signal: exec?.signal, timeoutMs: 20000, label: `bot="${bot.name}" store=${s}` })
+        .then((r) => ({ s, r }), (e) => ({ s, e }))));
       for (const { s, r, e } of answers) {
         if (e || !Array.isArray(r?.stores)) {
           lines.push(`${s === 'memory' ? '合起来的记忆工具' : STORE_LABEL[s]}：查不到状态（${String(e?.message || '服务没给状态').slice(0, 80)}）。`);
@@ -488,9 +648,14 @@ export function apply(ctx, rowConfig = {}) {
     servers: { ...DEFAULTS.servers, ...(rowConfig.servers || {}) },
     prefix: { ...DEFAULTS.prefix, ...(rowConfig.prefix || {}) },
   };
-  opts.call = rowConfig.call || callServer;
-  const now = rowConfig.now || Date.now;
   const log = logger(opts.logFile);
+  // Long-lived server processes per Bot and store (keepAlive: false = one process per call, as before 0.3.0).
+  const pool = rowConfig.call || opts.keepAlive === false ? null
+    : createPool({ idleMs: opts.idleMs, max: opts.maxProcesses, log });
+  opts.call = rowConfig.call || (pool ? pool.call : callServer);
+  const oneShot = rowConfig.call || callServer; // the catalog refresh at load needs no process kept
+  if (pool && typeof ctx.effect === 'function') ctx.effect(() => () => pool.close(), `${name}: server processes`);
+  const now = rowConfig.now || Date.now;
   let registry = null; // Tobs's Bot registry, once the botharness service is there
   const allProblems = (c) => {
     const r = resolveBots(c, registry);
@@ -521,7 +686,7 @@ export function apply(ctx, rowConfig = {}) {
   check(config, true);
 
   // Refresh the catalog from the servers themselves (with the shared env, so MEMORY_OWNER shows in the text).
-  Promise.all(STORES.map((s) => opts.call(opts.servers[s], config.env, null, null, { timeoutMs: 30000 })
+  Promise.all(STORES.map((s) => oneShot(opts.servers[s], config.env, null, null, { timeoutMs: 30000 })
     .then((r) => (Array.isArray(r?.tools) ? r.tools.map(({ name: n, description, inputSchema }) => ({ name: n, description, inputSchema })) : null))
     .catch(() => null)))
     .then((lists) => {

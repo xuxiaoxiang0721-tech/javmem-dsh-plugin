@@ -72,9 +72,10 @@ Tool names, descriptions and arguments come from the bundled MCP servers (`mcp/`
 ## How it works
 
 - The plugin uses Tobs's per-Bot hook (botharness `contributeBotAgentSetup`) to give tools to every listed Bot's front desk and to the Assignments it sends out.
-- Every call starts the matching MCP server with that Bot's own settings and ends it when the answer is in: memv2 with the Bot's read-only client token file, Javis with its profile. So each Bot reaches exactly what its token and profile allow.
+- Each store of each Bot has one long-lived MCP server process, started with that Bot's own settings: memv2 with its read-only client token file, Javis with its profile. So each Bot reaches exactly what its token and profile allow, and two Bots never share a process.
+- A process exits after 5 idle minutes, and at most 8 run at once (the least recently used idle one makes room; when all are busy, the call gets a one-off process). A process that dies mid-call is replaced and the call tried once more; one that hangs past the timeout is replaced. Measured (0号机, Windows, Node 24, `node scripts/bench-calls.mjs`): over 20 consecutive calls, one process per call took 54.6 ms per call on average, a long-lived process 4.2 ms (56 ms for the first, then a median of 1.4 ms). That is the plugin's own cost, without the stores' query time.
 - A failure while registering tools is only logged; it never keeps a Bot's session from starting.
-- The log (optional) has one line per call: Bot, tool, milliseconds and answer size; never the query or memory text.
+- The log (optional) has one line per call: Bot, tool, milliseconds and answer size, and a line when a process starts or stops; never the query or memory text.
 
 ## Prerequisites
 
@@ -119,6 +120,7 @@ Override the row by its id in your profile's `cordis.patch.yml`:
 | `prefix` | optional: tool name prefixes, default `memory_`, `memv2_`, `javis_` |
 | `servers` | optional: paths to your own `memory-mcp.js`, `memv2-mcp.js`, `javis-mcp.js` |
 | `statusTool` | optional: the status tool's name, default `memory_status`; `false` = none |
+| `keepAlive`, `idleMs`, `maxProcesses` | optional: the long-lived processes. `keepAlive: false` = a new process for every call (the way before 0.3.0); `idleMs` = idle time before a process exits, default 300000 (5 minutes); `maxProcesses` = how many may run at once, default 8 |
 
 Only settings starting with `MEMV2_`, `JAVIS_` or `MEMORY_` are used; the config holds paths and settings, never tokens.
 
