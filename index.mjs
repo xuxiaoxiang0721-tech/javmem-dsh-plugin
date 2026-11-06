@@ -23,6 +23,9 @@
 //   env      { ENV: value } given to every call (e.g. MEMORY_OWNER, MEMV2_URL, JAVIS_URL)
 //   prefix   { memv2: 'memv2_', javis: 'javis_' }
 //   servers  { memv2: <path to memv2-mcp.js>, javis: <path to javis-mcp.js> } (default: the bundled copies)
+//   statusTool  the name of the status tool every listed Bot also gets (default memory_status; false = none): its
+//            tools, each store's state, its files, its config warnings and its last calls' times, no token and no
+//            memory text
 //   configFile, catalogFile, logFile, callMs (logFile: optional; one line per call with bot, tool, milliseconds and
 //            answer size, never arguments or memory text)
 import { spawn } from 'node:child_process';
@@ -46,6 +49,7 @@ export const DEFAULTS = {
     memory: join(HERE, 'mcp', 'memory-mcp.js'),
   },
   prefix: { memv2: 'memv2_', javis: 'javis_', memory: 'memory_' },
+  statusTool: 'memory_status',
   callMs: 120000,
 };
 // memory = the combined server (both stores in five tools); memv2 and javis = the single-store servers.
@@ -63,7 +67,7 @@ function logger(file) {
 // Fields a config may carry: FILE_FIELDS in a configFile or the row, ROW_FIELDS only in the cordis row (call and now
 // are for tests), BOT_FIELDS in one Bot's entry.
 const FILE_FIELDS = ['mode', 'bots', 'env'];
-const ROW_FIELDS = ['configFile', 'catalogFile', 'logFile', 'callMs', 'prefix', 'servers', 'call', 'now'];
+const ROW_FIELDS = ['configFile', 'catalogFile', 'logFile', 'callMs', 'prefix', 'servers', 'statusTool', 'call', 'now'];
 const BOT_FIELDS = ['name', 'off', ...STORES];
 // Settings that name a file, with what a missing file means for the Bot.
 const FILE_SETTINGS = {
@@ -143,20 +147,28 @@ function tokenFrom(profile) {
   }
 }
 
+/**
+ * The file settings in env (token files, hide list, verdicts, labels), plus the token file a Javis profile names in
+ * JAVIS_TOKEN_FROM, each with whether its file is there. where = the config path of env, for messages.
+ */
+export function fileChecks(env, where, exists = existsSync) {
+  const out = [];
+  for (const [key, effect] of Object.entries(FILE_SETTINGS)) {
+    const file = env[key];
+    if (!file) continue;
+    const there = exists(file);
+    out.push({ key, file, there, effect, text: `${where}.${key}=${file}` });
+    const from = there && key === 'JAVIS_TOKEN_FILE' ? tokenFrom(file) : '';
+    if (from) out.push({ key: 'JAVIS_TOKEN_FROM', file: from, there: exists(from), effect, text: `JAVIS_TOKEN_FROM=${from}, named in ${where}.${key}=${file}` });
+  }
+  return out;
+}
+
 /** File settings (token files, the Javis profile's token file, hide list, verdicts, labels) whose file is missing. */
 export function fileProblems(config, exists = existsSync) {
   const problems = [];
   const check = (env, where, bot) => {
-    for (const [key, effect] of Object.entries(FILE_SETTINGS)) {
-      const file = env[key];
-      if (!file) continue;
-      if (!exists(file)) {
-        problems.push({ bot, text: `missing file ${where}.${key}=${file} (${effect})` });
-      } else if (key === 'JAVIS_TOKEN_FILE') {
-        const from = tokenFrom(file);
-        if (from && !exists(from)) problems.push({ bot, text: `missing file JAVIS_TOKEN_FROM=${from}, named in ${where}.${key}=${file} (${effect})` });
-      }
-    }
+    for (const c of fileChecks(env, where, exists)) if (!c.there) problems.push({ bot, text: `missing file ${c.text} (${c.effect})` });
   };
   check(config.env, 'env', null);
   for (const [slug, bot] of Object.entries(config.bots)) {
@@ -221,10 +233,11 @@ export function parameters(schema) {
 }
 
 /**
- * Start an MCP server script with `env`, run one request (tools/list when `tool` is null, else tools/call) and end
- * it. Resolves with the JSON-RPC result; rejects on a timeout, the call being cancelled, or the server failing.
+ * Start an MCP server script with `env`, run one request (tools/list when `tool` is null, else tools/call; `method`
+ * sends that request with `args` as its params instead) and end it. Resolves with the JSON-RPC result; rejects on a
+ * timeout, the call being cancelled, or the server failing.
  */
-export function callServer(script, env, tool, args, { signal, timeoutMs = DEFAULTS.callMs } = {}) {
+export function callServer(script, env, tool, args, { signal, timeoutMs = DEFAULTS.callMs, method } = {}) {
   return new Promise((resolve, reject) => {
     const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => !OWN_ENV.test(k)));
     const child = spawn(process.execPath, [script], { env: { ...base, ...env }, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
@@ -259,9 +272,9 @@ export function callServer(script, env, tool, args, { signal, timeoutMs = DEFAUL
         if (msg.id === 1) {
           if (msg.error) { finish(new Error(msg.error.message || 'initialize failed')); return; }
           send({ jsonrpc: '2.0', method: 'notifications/initialized' });
-          send(tool === null
-            ? { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }
-            : { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: tool, arguments: args ?? {} } });
+          if (method) send({ jsonrpc: '2.0', id: 2, method, params: args ?? {} });
+          else if (tool === null) send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+          else send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: tool, arguments: args ?? {} } });
         } else if (msg.id === 2) {
           if (msg.error) finish(new Error(msg.error.message || 'call failed'));
           else finish(null, msg.result);
@@ -284,28 +297,96 @@ function readCatalog(file) {
   }
 }
 
-function toolFor(store, t, bot, role, opts, sharedEnv, log) {
+const textOutput = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] };
+
+// who = { slug, bot, role }; deps = { opts, sharedEnv, log, record(slug, { tool, ms, ok }) }.
+function toolFor(store, t, who, deps) {
+  const { opts, sharedEnv, log, record } = deps;
+  const toolName = `${opts.prefix[store]}${t.name}`;
   return defineTool({
-    name: `${opts.prefix[store]}${t.name}`,
+    name: toolName,
     description: t.description,
     parameters: parameters(t.inputSchema),
-    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+    output: textOutput,
     async execute(args, exec) {
       exec?.signal?.throwIfAborted?.();
       const started = Date.now();
-      const tag = `bot="${bot.name}" role=${role} tool=${opts.prefix[store]}${t.name}`;
+      const tag = `bot="${who.bot.name}" role=${who.role} tool=${toolName}`;
       let result;
       try {
-        result = await opts.call(opts.servers[store], { ...sharedEnv(), ...bot[store] }, t.name, args,
+        result = await opts.call(opts.servers[store], { ...sharedEnv(), ...who.bot[store] }, t.name, args,
           { signal: exec?.signal, timeoutMs: opts.callMs });
       } catch (e) {
-        log(`call ${tag} ms=${Date.now() - started} failed=${String(e?.message || e).slice(0, 80)}`);
+        const ms = Date.now() - started;
+        record(who.slug, { tool: toolName, ms, ok: false });
+        log(`call ${tag} ms=${ms} failed=${String(e?.message || e).slice(0, 80)}`);
         throw new Error(`${{ memv2: 'memv2', javis: 'Javis', memory: '记忆工具' }[store]}这次没有回应（${String(e?.message || e).slice(0, 80)}），可以稍后再试。`);
       }
+      const ms = Date.now() - started;
       const text = (result?.content || []).filter((c) => c?.type === 'text').map((c) => c.text).join('\n');
-      log(`call ${tag} ms=${Date.now() - started} chars=${text.length}${result?.isError ? ' error' : ''}`);
+      record(who.slug, { tool: toolName, ms, ok: !result?.isError });
+      log(`call ${tag} ms=${ms} chars=${text.length}${result?.isError ? ' error' : ''}`);
       if (result?.isError) throw new Error(text || '查询出错。');
       return text;
+    },
+  });
+}
+
+const STORE_LABEL = { memv2: 'memv2', javis: 'Javis' };
+const STATE_TEXT = {
+  ok: '连得上，令牌可用',
+  bad_token: '连得上，但令牌不对',
+  down: '连不上',
+  no_token: '令牌没配好',
+  error: '出错了',
+};
+const HIDE_TEXT = { ok: '隐藏名单可读', none: '没有隐藏名单', unreadable: '隐藏名单读不了，这样 Javis 一条都不会查' };
+const LABELS_TEXT = { ok: '两库对照标签可读', missing: '两库对照标签文件找不到' };
+const msText = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)} 秒` : `${ms} 毫秒`);
+
+/**
+ * The status tool: which memory tools this Bot has, whether each store answers and takes its token, whether its
+ * files are there, its config warnings and its last calls' times. It asks the bundled servers for their state (the
+ * javmem/status request, which reads no memory) and shows no token and no memory text.
+ */
+function statusTool(who, deps) {
+  const { opts, sharedEnv, problems, recentOf, toolNames } = deps;
+  return defineTool({
+    name: opts.statusTool,
+    description: '查记忆插件的状态：这个 Bot 挂了哪些记忆工具，memv2 和 Javis 连不连得上、令牌能不能用，令牌文件在不在，'
+      + '配置有没有写错，最近几次调用花了多久。只报状态，不显示令牌，也不显示记忆内容。记忆工具报错，或用户问记忆怎么不好用时用。',
+    parameters: {},
+    output: textOutput,
+    async execute(_args, exec) {
+      exec?.signal?.throwIfAborted?.();
+      const { slug, bot } = who;
+      const names = toolNames();
+      const lines = [`记忆插件 ${name} ${VERSION}；Bot「${bot.name}」（${slug}）。`,
+        names.length ? `挂上的记忆工具（${names.length} 个）：${names.join('、')}。` : '这个 Bot 没挂任何记忆工具（配置里没写 memory、memv2 或 javis）。'];
+      const stores = STORES.filter((s) => bot[s]);
+      const answers = await Promise.all(stores.map((s) => opts.call(opts.servers[s], { ...sharedEnv(), ...bot[s] }, null, {},
+        { method: 'javmem/status', signal: exec?.signal, timeoutMs: 20000 }).then((r) => ({ s, r }), (e) => ({ s, e }))));
+      for (const { s, r, e } of answers) {
+        if (e || !Array.isArray(r?.stores)) {
+          lines.push(`${s === 'memory' ? '合起来的记忆工具' : STORE_LABEL[s]}：查不到状态（${String(e?.message || '服务没给状态').slice(0, 80)}）。`);
+          continue;
+        }
+        for (const st of r.stores) {
+          const extra = [st.detail && String(st.detail).replace(/[。.]$/, ''), st.hide_list && HIDE_TEXT[st.hide_list]].filter(Boolean).join('；');
+          lines.push(`${STORE_LABEL[st.store] || st.store}（${st.url}）：${STATE_TEXT[st.state] || st.state}${extra ? `。${extra}` : ''}。`);
+        }
+        if (r.labels && LABELS_TEXT[r.labels]) lines.push(`${LABELS_TEXT[r.labels]}。`);
+      }
+      const checks = [...fileChecks(sharedEnv(), 'env'), ...stores.flatMap((s) => fileChecks(bot[s], `bots.${slug}.${s}`))];
+      if (checks.length) lines.push(`文件：${checks.map((c) => `${c.key} ${c.there ? '在' : `不在（${c.file}）`}`).join('；')}。`);
+      const mine = problems(slug);
+      lines.push(mine.length ? `配置提醒（${mine.length} 条）：${mine.join('；')}。` : '配置提醒：没有。');
+      const recent = recentOf(slug).slice(-5).reverse();
+      lines.push(recent.length
+        ? `最近 ${recent.length} 次调用（新的在前）：${recent.map((c) => `${c.tool} ${msText(c.ms)}${c.ok ? '' : '，失败'}`).join('；')}。`
+        : '这个 Bot 最近还没有调用过记忆工具。');
+      lines.push('这里只报状态：不显示令牌，也不显示记忆内容。');
+      return lines.join('\n');
     },
   });
 }
@@ -321,7 +402,16 @@ export function apply(ctx, rowConfig = {}) {
   const now = rowConfig.now || Date.now;
   const log = logger(opts.logFile);
   let registry = null; // Tobs's Bot registry, once the botharness service is there
-  const check = (c) => warn([...c.problems, ...fileProblems(c), ...botProblems(c, registry)], log);
+  const allProblems = (c) => [...c.problems, ...fileProblems(c), ...botProblems(c, registry)];
+  const check = (c) => warn(allProblems(c), log);
+  // The last calls of each Bot (tool, milliseconds, ok), for the status tool; never arguments or answers.
+  const recent = new Map();
+  const record = (slug, call) => {
+    const list = recent.get(slug) || [];
+    list.push(call);
+    if (list.length > 10) list.shift();
+    recent.set(slug, list);
+  };
   let config = readConfig(opts.configFile, rowConfig);
   let configMtime = mtime(opts.configFile);
   let checkedAt = now();
@@ -362,21 +452,40 @@ export function apply(ctx, rowConfig = {}) {
     try {
       const c = current();
       if (c.mode !== 'on') return;
-      const bot = c.bots[info?.botSlug];
+      const slug = info?.botSlug;
+      const bot = c.bots[slug];
       if (!bot) return;
-      let count = 0;
+      const who = { slug, bot, role: info.rootRole || 'unknown' };
+      const sharedEnv = () => current().env;
+      const names = [];
+      const register = (def) => {
+        try {
+          agentCtx.tools.register(def);
+          return true;
+        } catch (e) {
+          log(`register failed bot="${bot.name}" tool=${def?.name} ${String(e?.message || e).slice(0, 120)}`);
+          return false;
+        }
+      };
       for (const store of STORES) {
         if (!bot[store]) continue;
         for (const t of catalog[store]) {
+          let def;
           try {
-            agentCtx.tools.register(toolFor(store, t, bot, info.rootRole || 'unknown', opts, () => current().env, log));
-            count += 1;
+            def = toolFor(store, t, who, { opts, sharedEnv, log, record });
           } catch (e) {
             log(`register failed bot="${bot.name}" tool=${opts.prefix[store]}${t.name} ${String(e?.message || e).slice(0, 120)}`);
+            continue;
           }
+          if (register(def)) names.push(def.name);
         }
       }
-      log(`tools bot="${bot.name}" role=${info.rootRole || 'unknown'} count=${count}`);
+      let count = names.length;
+      if (opts.statusTool) {
+        const problems = (s) => allProblems(current()).filter((p) => p.bot === s).map((p) => p.text);
+        if (register(statusTool(who, { opts, sharedEnv, problems, recentOf: (s) => recent.get(s) || [], toolNames: () => names }))) count += 1;
+      }
+      log(`tools bot="${bot.name}" role=${who.role} count=${count}`);
     } catch (e) {
       log(`setup failed bot=${info?.botSlug} ${String(e?.message || e).slice(0, 120)}`);
     }

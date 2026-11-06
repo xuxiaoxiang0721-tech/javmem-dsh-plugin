@@ -53,7 +53,7 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   ok('config and parameters');
 }
 
-// 2. Off registers nothing; on gives a listed Bot its stores' tools; unlisted Bots get none.
+// 2. Off registers nothing; on gives a listed Bot its stores' tools plus memory_status; unlisted Bots get none.
 {
   const h0 = host();
   apply(h0.ctx, { mode: 'off', bots, env, logFile });
@@ -61,11 +61,14 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   const h = host();
   apply(h.ctx, { mode: 'on', bots, env, logFile });
   assert.deepEqual([...h.agent(A).keys()].sort(), ['javis_find_sessions', 'javis_get_conversation', 'javis_get_entity',
-    'javis_search_memory', 'memv2_read_record', 'memv2_recall', 'memv2_search', 'memv2_search_raw']);
-  assert.equal(h.agent(A, 'assignment').size, 8);
-  assert.equal(h.agent(B).size, 4);
+    'javis_search_memory', 'memory_status', 'memv2_read_record', 'memv2_recall', 'memv2_search', 'memv2_search_raw']);
+  assert.equal(h.agent(A, 'assignment').size, 9);
+  assert.equal(h.agent(B).size, 5);
   assert.equal(h.agent('bot-ffffffffffffffffffffffffffffffff').size, 0);
-  ok('off, on, per-store tools, unlisted Bots');
+  const h2 = host();
+  apply(h2.ctx, { mode: 'on', bots, env, logFile, statusTool: false });
+  assert.equal(h2.agent(B).size, 4);
+  ok('off, on, per-store tools and memory_status, unlisted Bots');
 }
 
 // 3. Descriptions start as catalog.json and follow the servers (with the shared env) once refreshed.
@@ -115,7 +118,7 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   await new Promise((r) => setTimeout(r, 50));
   writeFileSync(file, JSON.stringify({ mode: 'on', bots: { [A]: bots[A] }, env }));
   t += 2500;
-  assert.equal(h.agent(A).size, 8);
+  assert.equal(h.agent(A).size, 9);
   ok('config file reloaded without a restart');
 }
 
@@ -125,7 +128,7 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   const h = host();
   apply(h.ctx, { mode: 'on', env, logFile, bots: { [C]: { name: 'Gamma', memory: { MEMV2_TOKEN_FILE: tokenFile, JAVIS_TOKEN_FILE: profile } } } });
   const tools = h.agent(C);
-  assert.deepEqual([...tools.keys()].sort(), ['memory_person', 'memory_read', 'memory_recall', 'memory_search', 'memory_search_raw']);
+  assert.deepEqual([...tools.keys()].sort(), ['memory_person', 'memory_read', 'memory_recall', 'memory_search', 'memory_search_raw', 'memory_status']);
   await assert.rejects(() => run(tools.get('memory_search'), { query: 'x' }), /两个库这次都没查成/);
   ok('combined server: five memory_* tools, both stores down named');
 }
@@ -148,7 +151,7 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   } finally {
     console.warn = original;
   }
-  assert.deepEqual([...tools.keys()].sort(), ['memory_person', 'memory_read', 'memory_recall', 'memory_search', 'memory_search_raw']);
+  assert.deepEqual([...tools.keys()].sort(), ['memory_person', 'memory_read', 'memory_recall', 'memory_search', 'memory_search_raw', 'memory_status']);
   assert.equal(warned.length, 1);
   assert.match(warned[0], /^javmem-dsh-plugin: warning bot="Delta" has both memory and memv2\/javis set; only the memory tools are registered$/);
   assert.match(readFileSync(logFile, 'utf8'), /warning bot="Delta" has both memory and memv2\/javis set/);
@@ -226,7 +229,7 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   } finally {
     console.warn = original;
   }
-  assert.equal(tools.size, 8);
+  assert.equal(tools.size, 9);
   const lines = warned.map((w) => w.replace(/^javmem-dsh-plugin: warning /, ''));
   assert.equal(lines.length, 10);
   assert.ok(lines.includes(`no Bot ${E} in this DSH (bots.${E}), so nobody gets these tools`));
@@ -236,6 +239,43 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   assert.match(logged, new RegExp(`warning no Bot ${E} in this DSH`));
   assert.ok(!/SECRET-VALUE|acct-a|not-a-real-token/.test(logged + warned.join('\n')), 'warnings name keys and paths, never values');
   ok('config mistakes: one warning line each, keys and paths only');
+}
+
+// 11. memory_status: the Bot's tools, each store's state (from the servers' javmem/status: both down here), its files,
+//     its own config warnings and its last calls with their times; never a token, an argument or memory text.
+{
+  const F = 'bot-ffffffffffffffffffffffffffffff01';
+  const C = 'bot-cccccccccccccccccccccccccccccccc';
+  const h = host();
+  const warned = [];
+  const original = console.warn;
+  console.warn = (m) => warned.push(String(m));
+  try {
+    apply(h.ctx, { mode: 'on', env, logFile, bots: {
+      [F]: { name: 'Foxtrot', memv2: { MEMV2_TOKEN_FILE: tokenFile }, javis: { JAVIS_TOKEN_FILE: profile }, colour: 'red' },
+      [C]: { name: 'Gamma', memory: { MEMV2_TOKEN_FILE: tokenFile, JAVIS_TOKEN_FILE: profile } },
+    } });
+  } finally {
+    console.warn = original;
+  }
+  const tools = h.agent(F);
+  await assert.rejects(() => run(tools.get('memv2_search'), { query: 'secret-query-zzz' }));
+  const text = await run(tools.get('memory_status'), {});
+  assert.match(text, /Bot「Foxtrot」（bot-ffffffffffffffffffffffffffffff01）/);
+  assert.match(text, /挂上的记忆工具（8 个）：memv2_recall、memv2_search、memv2_search_raw、memv2_read_record、javis_search_memory/);
+  assert.match(text, /memv2（http:\/\/127\.0\.0\.1:9）：连不上。memv2 没在运行/);
+  assert.match(text, /Javis（http:\/\/127\.0\.0\.1:9\/mcp）：连不上。Javis 没在运行（127\.0\.0\.1:9 连不上）；没有隐藏名单。/);
+  if (process.env.SHOW_STATUS) console.log(text);
+  assert.match(text, /文件：MEMV2_TOKEN_FILE 在；JAVIS_TOKEN_FILE 在；JAVIS_TOKEN_FROM 在。/);
+  assert.match(text, /配置提醒（1 条）：unknown field bots\.bot-ffffffffffffffffffffffffffffff01\.colour。/);
+  assert.match(text, /最近 1 次调用（新的在前）：memv2_search \d+ 毫秒，失败。/);
+  assert.ok(!/secret-query-zzz|not-a-real-token|acct-a/.test(text), 'no argument, token or profile content');
+  const both = await run(h.agent(C).get('memory_status'), {});
+  assert.match(both, /memv2（http:\/\/127\.0\.0\.1:9）：连不上/);
+  assert.match(both, /Javis（http:\/\/127\.0\.0\.1:9\/mcp）：连不上/);
+  assert.match(both, /配置提醒：没有。/);
+  assert.match(both, /这个 Bot 最近还没有调用过记忆工具。/);
+  ok('memory_status: tools, store states, files, warnings, last calls; no token or memory text');
 }
 
 assert.ok(!/"query"/.test(readFileSync(logFile, 'utf8')), 'the log must not hold arguments');

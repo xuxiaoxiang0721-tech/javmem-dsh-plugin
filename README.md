@@ -38,6 +38,8 @@ DeepSeek Harness（Tobs）插件：给你列出的 Bot 挂上只读的记忆工�
 | `javis_find_sessions` | Javis | 按关键词找以前对话的原话 |
 | `javis_get_conversation` | Javis | 按对话号读整段对话 |
 
+另外每个列出的 Bot 都有一个 `memory_status`：报这个 Bot 挂了哪些记忆工具、memv2 和 Javis 连不连得上、令牌能不能用、令牌文件在不在、配置有没有写错、最近几次调用花了多久。它向附带的服务要状态（服务的 `javmem/status` 请求，不读任何记忆），只报状态，不显示令牌和记忆内容。不想要它，就在配置里写 `statusTool: false`。
+
 工具名、说明和参数来自包里附带的 MCP 服务（`mcp/` 目录，复制自 [javmem-mcp](https://github.com/xuxiaoxiang0721-tech/javmem-mcp)），说明是中文，按小模型写得很短。合起来的工具要给每条标上两个库的对照结果时，在 `env` 里设 `MEMORY_LABELS_FILE`（格式见 javmem-mcp 的说明）。
 
 ## 怎么工作
@@ -93,6 +95,7 @@ DeepSeek Harness（Tobs）插件：给你列出的 Bot 挂上只读的记忆工�
 | `logFile` | 可选：日志文件路径 |
 | `prefix` | 可选：工具名前缀，默认 `memory_`、`memv2_`、`javis_` |
 | `servers` | 可选：换成你自己的 `memory-mcp.js`、`memv2-mcp.js`、`javis-mcp.js` 路径 |
+| `statusTool` | 可选：状态工具的名字，默认 `memory_status`；`false` = 不挂 |
 
 只接受 `MEMV2_`、`JAVIS_`、`MEMORY_` 开头的设置；配置里只写路径和设置，不写令牌。
 
