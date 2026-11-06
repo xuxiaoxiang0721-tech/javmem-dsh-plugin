@@ -2,6 +2,7 @@
   "name": "javmem-dsh-plugin",
   "version": "0.2.0",
   "description": "DeepSeek Harness (Tobs) plugin: read-only memory tools from memv2 and Javis for the Bots you list (one combined tool or the two single-store ones), with no per-Bot private MCP card.",
+  "license": "MIT",
   "type": "module",
   "main": "./index.mjs",
   "exports": {
@@ -13,7 +14,8 @@
     "cordis.patch.yml",
     "mcp/",
     "scripts/",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "test": "node test/test-plugin.mjs",
