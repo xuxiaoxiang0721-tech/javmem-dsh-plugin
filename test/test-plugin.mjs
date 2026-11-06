@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { apply, DEFAULTS, normalizeConfig, parameters } from '../index.mjs';
+import { apply, DEFAULTS, normalizeConfig, parameters, VERSION } from '../index.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'javmem-dsh-plugin-'));
 const A = 'bot-0123456789abcdef0123456789abcdef';
@@ -44,6 +44,7 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   assert.deepEqual(Object.keys(c.bots), [A]);
   assert.deepEqual(c.bots[A].memv2, { MEMV2_TOKEN_FILE: 'f' });
   assert.deepEqual(c.env, { MEMORY_OWNER: 'o' });
+  assert.deepEqual(c.overlap, []);
   assert.equal(normalizeConfig({ mode: false }).mode, 'off');
   assert.deepEqual(parameters({ required: ['q'], properties: { q: { type: 'string', description: 'd' }, n: { type: 'integer', minimum: 1 }, a: { type: 'array' } } }),
     { q: { type: 'string', description: 'd', required: true }, n: { type: 'integer' } });
@@ -125,6 +126,31 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   assert.deepEqual([...tools.keys()].sort(), ['memory_person', 'memory_read', 'memory_recall', 'memory_search', 'memory_search_raw']);
   await assert.rejects(() => run(tools.get('memory_search'), { query: 'x' }), /两个库这次都没查成/);
   ok('combined server: five memory_* tools, both stores down named');
+}
+
+// 8. The code reports package.json's version. A Bot given both memory and memv2/javis still gets both sets (nothing
+//    changes for it), but is named in a warning in the log file and on stderr.
+{
+  assert.equal(VERSION, JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
+  const D = 'bot-dddddddddddddddddddddddddddddddd';
+  const both = { [D]: { name: 'Delta', memory: { MEMV2_TOKEN_FILE: tokenFile }, memv2: { MEMV2_TOKEN_FILE: tokenFile } }, [B]: bots[B] };
+  assert.deepEqual(normalizeConfig({ bots: both }).overlap, ['Delta']);
+  const warned = [];
+  const original = console.warn;
+  console.warn = (m) => warned.push(String(m));
+  let tools;
+  try {
+    const h = host();
+    apply(h.ctx, { mode: 'on', env, logFile, bots: both });
+    tools = h.agent(D);
+  } finally {
+    console.warn = original;
+  }
+  assert.equal(tools.size, 9);
+  assert.equal(warned.length, 1);
+  assert.match(warned[0], /^javmem-dsh-plugin: warning bot="Delta" has both memory and memv2\/javis set/);
+  assert.match(readFileSync(logFile, 'utf8'), /warning bot="Delta" has both memory and memv2\/javis set/);
+  ok('one version; a Bot with both tool sets is warned about');
 }
 
 assert.ok(!/"query"/.test(readFileSync(logFile, 'utf8')), 'the log must not hold arguments');

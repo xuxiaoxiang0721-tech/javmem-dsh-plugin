@@ -15,8 +15,8 @@
 //   bots     { <bot slug>: { name, off?, memory?: { ENV: value }, memv2?: { ENV: value }, javis?: { ENV: value } } }
 //            A slug is a Bot's folder name under <DSH home>/botharness/bots (bot-<32 hex>). memory = the combined
 //            server's five tools (give it both MEMV2_* and JAVIS_* settings); memv2 / javis = the single-store
-//            servers' tools. Give a Bot either memory or memv2/javis, not both. Values are paths and settings, never
-//            tokens.
+//            servers' tools. Give a Bot either memory or memv2/javis, not both: both sets would be registered, and the
+//            plugin warns (log file and stderr). Values are paths and settings, never tokens.
 //   env      { ENV: value } given to every call (e.g. MEMORY_OWNER, MEMV2_URL, JAVIS_URL)
 //   prefix   { memv2: 'memv2_', javis: 'javis_' }
 //   servers  { memv2: <path to memv2-mcp.js>, javis: <path to javis-mcp.js> } (default: the bundled copies)
@@ -29,9 +29,12 @@ import { fileURLToPath } from 'node:url';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 
 export const name = 'javmem-dsh-plugin';
-export const VERSION = '0.2.0';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// The package's own version, read from package.json so the two cannot drift apart.
+export const VERSION = (() => {
+  try { return String(JSON.parse(readFileSync(join(HERE, 'package.json'), 'utf8')).version); } catch { return 'unknown'; }
+})();
 export const DEFAULTS = {
   catalogFile: join(HERE, 'catalog.json'),
   servers: {
@@ -57,18 +60,32 @@ function logger(file) {
 const envOf = (obj) => Object.fromEntries(Object.entries(obj && typeof obj === 'object' ? obj : {})
   .filter(([k, v]) => OWN_ENV.test(k) && typeof v === 'string'));
 
-/** The usable part of a config object (row config or file). */
+/**
+ * The usable part of a config object (row config or file). overlap names the Bots given both the combined server
+ * and a single-store one: they get both tool sets, which is almost always a mistake.
+ */
 export function normalizeConfig(raw = {}, from = 'row') {
   const bots = {};
+  const overlap = [];
   for (const [slug, b] of Object.entries(raw.bots || {})) {
     if (!b || typeof b !== 'object' || b.off === true) continue; // "off": true parks a Bot without removing it
     const entry = { name: String(b.name || slug) };
     for (const store of STORES) if (b[store] && typeof b[store] === 'object') entry[store] = envOf(b[store]);
+    if (entry.memory && (entry.memv2 || entry.javis)) overlap.push(entry.name);
     bots[slug] = entry;
   }
   // YAML 1.1 readers turn a bare on/off into a boolean.
   const mode = raw.mode === 'on' || raw.mode === true ? 'on' : 'off';
-  return { mode, bots, env: envOf(raw.env), from };
+  return { mode, bots, env: envOf(raw.env), from, overlap };
+}
+
+/** Warn about every Bot in config.overlap, in the log file (if any) and on stderr, so it shows without a log file. */
+function warnOverlap(config, log) {
+  for (const botName of config.overlap) {
+    const line = `warning bot="${botName}" has both memory and memv2/javis set, so it gets both tool sets; keep one`;
+    log(line);
+    console.warn(`${name}: ${line}`);
+  }
 }
 
 function readConfig(file, fallback) {
@@ -201,6 +218,7 @@ export function apply(ctx, rowConfig = {}) {
   let catalog = readCatalog(opts.catalogFile);
   log(`started v=${VERSION} mode=${config.mode} bots=${Object.keys(config.bots).length} from=${config.from} `
     + `tools=${STORES.map((s) => `${s}:${catalog[s].length}`).join(',')}`);
+  warnOverlap(config, log);
 
   // Refresh the catalog from the servers themselves (with the shared env, so MEMORY_OWNER shows in the text).
   Promise.all(STORES.map((s) => opts.call(opts.servers[s], config.env, null, null, { timeoutMs: 30000 })
@@ -223,6 +241,7 @@ export function apply(ctx, rowConfig = {}) {
         configMtime = m;
         config = readConfig(opts.configFile, rowConfig);
         log(`config reloaded mode=${config.mode} bots=${Object.keys(config.bots).length} from=${config.from}`);
+        warnOverlap(config, log);
       }
     }
     return config;
