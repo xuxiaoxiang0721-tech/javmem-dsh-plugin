@@ -133,6 +133,31 @@ With the tools in place, a Bot still needs to know how to use them. Two notes sh
 - The skill [skills/javmem-memory/SKILL.md](skills/javmem-memory/SKILL.md): recall first, then search; amounts count from memv2; names must match; what to say when asked to change memory. Copy the whole `javmem-memory` folder into `skills/` under the DSH home for every agent, or into `.dsh/skills/` under one Bot's memory folder for that Bot only.
 - The front-rules snippet [docs/front-rules.md](docs/front-rules.md): eight lines to paste into a Bot's rules or SOUL.md, sized for small models.
 
+## For other plugins: ctx.javmem
+
+The plugin provides a service, `ctx.javmem` (cordis `ctx.provide('javmem')`), so another plugin (a guard, say) can look into a Bot's memory by its id without a model. Each query uses that Bot's own store, token and profile, so it reaches exactly what the Bot itself reaches; a Bot that is not listed, or a plugin that is off, is refused.
+
+| Method | What it does |
+|---|---|
+| `bots()` | the listed Bots and their stores (no paths, no tokens) |
+| `recall(botId, sentence, { maxChars })` | the Bot's recall |
+| `search(botId, keywords, { limit })` | the Bot's search (search_memory for a Bot with Javis only) |
+| `ask(botId, tool, args, { store })` | any tool of one of the Bot's stores, by the tool's own name (such as `person`) |
+| `status(botId)` | each store's state, as `memory_status` sees it, with no token and no memory text |
+
+Example (the whole plugin is in [examples/use-javmem-service.mjs](examples/use-javmem-service.mjs)):
+
+```js
+export function apply(ctx) {
+  ctx.inject(['javmem'], async ({ javmem }) => {
+    const text = await javmem.search('bot-0123456789abcdef0123456789abcdef', '体检', { limit: 3 });
+    const known = !/没有找到/.test(text); // pass on a yes or no only
+  });
+}
+```
+
+What comes back is memory text: a plugin that uses it should take care not to print it or send it anywhere.
+
 ## How it works
 
 - The plugin uses Tobs's per-Bot hook (botharness `contributeBotAgentSetup`) to give tools to every listed Bot's front desk and to the Assignments it sends out.

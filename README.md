@@ -133,6 +133,31 @@
 - 技能 [skills/javmem-memory/SKILL.md](skills/javmem-memory/SKILL.md)：先 recall 再 search、金额以 memv2 为准、名字要对得上、改不了时怎么说。把整个 `javmem-memory` 文件夹复制到 DSH 主目录的 `skills/` 下，所有 agent 都能用；复制到某个 Bot 的记忆文件夹下的 `.dsh/skills/`，就只给这个 Bot。
 - 前台规则片段 [docs/front-rules.md](docs/front-rules.md)：八行，贴进 Bot 的规则或 SOUL.md，适合小模型。
 
+## 给其他插件用：ctx.javmem
+
+插件提供一个服务 `ctx.javmem`（cordis 的 `ctx.provide('javmem')`），别的插件（比如 guard 这类）可以按 Bot 编号直接查这个 Bot 的记忆，不经过模型。查询用的是这个 Bot 自己的库、令牌和配置，所以拿到的范围和 Bot 自己一样；没列出的 Bot、插件关着时会被拒绝。
+
+| 方法 | 做什么 |
+|---|---|
+| `bots()` | 列出的 Bot 和它们用的库（没有路径，没有令牌） |
+| `recall(botId, 一句话, { maxChars })` | 这个 Bot 的 recall |
+| `search(botId, 关键词, { limit })` | 这个 Bot 的 search（只有 Javis 的 Bot 用 search_memory） |
+| `ask(botId, 工具名, 参数, { store })` | 这个 Bot 某个库的任意工具，按工具自己的名字（如 `person`） |
+| `status(botId)` | 每个库的状态，和 `memory_status` 看到的一样，不带令牌和记忆内容 |
+
+例子（完整的在 [examples/use-javmem-service.mjs](examples/use-javmem-service.mjs)）：
+
+```js
+export function apply(ctx) {
+  ctx.inject(['javmem'], async ({ javmem }) => {
+    const text = await javmem.search('bot-0123456789abcdef0123456789abcdef', '体检', { limit: 3 });
+    const known = !/没有找到/.test(text); // 只往外传是或否
+  });
+}
+```
+
+返回的是记忆原文。用它的插件要自己当心，别打印出来或发给别人。
+
 ## 怎么工作
 
 - 插件用 Tobs 的按 Bot 钩子（botharness `contributeBotAgentSetup`），给每个列出的 Bot 的前台和它派出的任务挂工具。

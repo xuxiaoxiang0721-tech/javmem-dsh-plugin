@@ -24,6 +24,7 @@
     "cordis.patch.yml",
     "mcp/",
     "scripts/",
+    "examples/",
     "skills/",
     "docs/front-rules.md",
     "README.md",

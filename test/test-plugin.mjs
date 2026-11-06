@@ -565,6 +565,37 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   ok('auto recall: only when a Human speaks, one marked user message, off unless asked');
 }
 
+// 18. The service for other plugins: ctx.provide('javmem') gives bots(), recall(), search(), ask() and status() for a
+//     listed Bot, each answered with that Bot's own store and settings, no model in between; a Bot that is not listed
+//     and a plugin that is off are refused; the example plugin in examples/ works against it.
+{
+  const D = 'bot-dddddddddddddddddddddddddddddd01';
+  const provided = {};
+  const h = host();
+  h.ctx.provide = (n, v) => { provided[n] = v; };
+  apply(h.ctx, { mode: 'on', logFile, env: { MEMV2_URL: 'demo', JAVIS_URL: 'demo' }, bots: { [D]: { name: 'Delta', memory: {} } } });
+  const { javmem } = provided;
+  assert.deepEqual(javmem.bots(), [{ slug: D, name: 'Delta', stores: ['memory'] }]);
+  assert.match(await javmem.recall(D, '小雨的游泳课'), /（图库也有）/);
+  assert.match(await javmem.search(D, '游泳课 学费'), /图库说：小明给小雨报了 3 个月游泳课，学费 2600 元/);
+  assert.match(await javmem.ask(D, 'person', { name: '老陈' }), /【图库：老陈/);
+  assert.deepEqual((await javmem.status(D)).map((s) => s.state), ['demo', 'demo']);
+  await assert.rejects(() => javmem.recall('bot-nobody', 'x'), /not a listed Bot/);
+  const { apply: example } = await import('../examples/use-javmem-service.mjs');
+  let result;
+  await new Promise((done) => example({
+    inject(names, cb) { assert.deepEqual(names, ['javmem']); Promise.resolve(cb({ javmem })).then(done); },
+  }, { bot: D, word: '游泳课', onResult: (r) => { result = r; } }));
+  assert.equal(result, true);
+  const off = {};
+  const h2 = host();
+  h2.ctx.provide = (n, v) => { off[n] = v; };
+  apply(h2.ctx, { mode: 'off', logFile, bots: { [D]: { memory: {} } } });
+  assert.deepEqual(off.javmem.bots(), []);
+  await assert.rejects(() => off.javmem.recall(D, 'x'), /plugin is off/);
+  ok('service for other plugins: a Bot\'s own memory without a model, refusals, the example plugin');
+}
+
 assert.ok(!/"query"/.test(readFileSync(logFile, 'utf8')), 'the log must not hold arguments');
 ok('log holds no arguments');
 console.log(`${passed} checks passed`);

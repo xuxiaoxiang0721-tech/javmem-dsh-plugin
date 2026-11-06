@@ -929,6 +929,63 @@ export function apply(ctx, rowConfig = {}) {
     scope.effect?.(() => () => { sessionQuery = null; }, `${name}: session query`);
     indexAll();
   });
+
+  // The service for other plugins (ctx.javmem): ask a listed Bot's memory as that Bot, with its own store, token and
+  // profile, without a model in between. Answers are the tools' text; a Bot that is not listed (or a plugin that is
+  // off) is refused.
+  const primary = (bot) => ['memory', 'local', 'memv2', 'javis'].find((s) => bot[s]);
+  const listed = (slug) => {
+    const c = current();
+    return c.mode === 'on' ? (resolve(c).bots[slug] || null) : null;
+  };
+  const service = {
+    version: VERSION,
+    /** The listed Bots and their stores (no paths, no tokens); empty while the plugin is off. */
+    bots() {
+      const c = current();
+      if (c.mode !== 'on') return [];
+      return Object.entries(resolve(c).bots).map(([slug, b]) => ({ slug, name: b.name, stores: STORES.filter((s) => b[s]) }));
+    },
+    /** One tool of one of the Bot's stores (its main store unless store is given), by the tool's own name. */
+    async ask(slug, tool, args = {}, { store, signal, timeoutMs = 30000 } = {}) {
+      const bot = listed(slug);
+      if (!bot) throw new Error(`javmem: ${slug} is not a listed Bot, or the plugin is off`);
+      const s = store || primary(bot);
+      if (!s || !bot[s]) throw new Error(`javmem: Bot ${slug} has no ${store || 'memory'} store`);
+      const started = Date.now();
+      await Promise.resolve(prepare(s, slug)).catch(() => { /* the store answers from what it has */ });
+      const r = await opts.call(opts.servers[s], { ...current().env, ...bot[s] }, tool, args,
+        { signal, timeoutMs, label: `bot="${bot.name}" store=${s}` });
+      const text = (r?.content || []).filter((c) => c?.type === 'text').map((c) => c.text).join('\n');
+      log(`service bot="${bot.name}" store=${s} tool=${tool} ms=${Date.now() - started} chars=${text.length}${r?.isError ? ' error' : ''}`);
+      if (r?.isError) throw new Error(text || 'javmem: the query failed');
+      return text;
+    },
+    /** The Bot's recall for a sentence. */
+    recall(slug, query, { maxChars, ...more } = {}) {
+      return service.ask(slug, 'recall', { query, ...(maxChars ? { max_chars: maxChars } : {}) }, more);
+    },
+    /** The Bot's keyword search (Javis's search_memory for a Bot that has Javis only). */
+    search(slug, query, { limit, ...more } = {}) {
+      const bot = listed(slug);
+      const tool = bot && primary(bot) === 'javis' ? 'search_memory' : 'search';
+      return service.ask(slug, tool, { query, ...(limit ? { limit } : {}) }, more);
+    },
+    /** Each of the Bot's stores' state, as memory_status sees it (javmem/status: no token, no memory text). */
+    async status(slug, { signal } = {}) {
+      const bot = listed(slug);
+      if (!bot) throw new Error(`javmem: ${slug} is not a listed Bot, or the plugin is off`);
+      const out = [];
+      for (const s of STORES.filter((x) => bot[x])) {
+        const r = await opts.call(opts.servers[s], { ...current().env, ...bot[s] }, null, {},
+          { method: 'javmem/status', signal, timeoutMs: 20000, label: `bot="${bot.name}" store=${s}` });
+        out.push(...(r?.stores || []));
+      }
+      return out;
+    },
+  };
+  if (typeof ctx.provide === 'function') ctx.provide('javmem', service);
+  return service;
 }
 
 function mtime(file) {
