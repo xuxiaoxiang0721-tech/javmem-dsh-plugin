@@ -23,6 +23,8 @@
     "cordis.patch.yml",
     "mcp/",
     "scripts/",
+    "skills/",
+    "docs/front-rules.md",
     "README.md",
     "README.en.md",
     "CHANGELOG.md",

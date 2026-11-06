@@ -86,6 +86,13 @@ Every listed Bot also gets `memory_status`: which memory tools the Bot has, whet
 
 Tool names, descriptions and arguments come from the bundled MCP servers (`mcp/`, copied from [javmem-mcp](https://github.com/xuxiaoxiang0721-tech/javmem-mcp)); the descriptions are in Chinese and kept short for small models. For cross-check marks on the combined tools, set `MEMORY_LABELS_FILE` in `env` (format in the javmem-mcp README).
 
+## Usage notes for the Bot
+
+With the tools in place, a Bot still needs to know how to use them. Two notes ship with the plugin, in Chinese like the tool text and in line with the tools' own guidance (a test checks this):
+
+- The skill [skills/javmem-memory/SKILL.md](skills/javmem-memory/SKILL.md): recall first, then search; amounts count from memv2; names must match; what to say when asked to change memory. Copy the whole `javmem-memory` folder into `skills/` under the DSH home for every agent, or into `.dsh/skills/` under one Bot's memory folder for that Bot only.
+- The front-rules snippet [docs/front-rules.md](docs/front-rules.md): eight lines to paste into a Bot's rules or SOUL.md, sized for small models.
+
 ## How it works
 
 - The plugin uses Tobs's per-Bot hook (botharness `contributeBotAgentSetup`) to give tools to every listed Bot's front desk and to the Assignments it sends out.

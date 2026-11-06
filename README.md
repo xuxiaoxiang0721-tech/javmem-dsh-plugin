@@ -86,6 +86,13 @@
 
 工具名、说明和参数来自包里附带的 MCP 服务（`mcp/` 目录，复制自 [javmem-mcp](https://github.com/xuxiaoxiang0721-tech/javmem-mcp)），说明是中文，按小模型写得很短。合起来的工具要给每条标上两个库的对照结果时，在 `env` 里设 `MEMORY_LABELS_FILE`（格式见 javmem-mcp 的说明）。
 
+## 给 Bot 的用法说明
+
+工具有了，Bot 还要知道怎么用。仓库里附了两份，内容和工具自带的说明一致（测试会核对）：
+
+- 技能 [skills/javmem-memory/SKILL.md](skills/javmem-memory/SKILL.md)：先 recall 再 search、金额以 memv2 为准、名字要对得上、改不了时怎么说。把整个 `javmem-memory` 文件夹复制到 DSH 主目录的 `skills/` 下，所有 agent 都能用；复制到某个 Bot 的记忆文件夹下的 `.dsh/skills/`，就只给这个 Bot。
+- 前台规则片段 [docs/front-rules.md](docs/front-rules.md)：八行，贴进 Bot 的规则或 SOUL.md，适合小模型。
+
 ## 怎么工作
 
 - 插件用 Tobs 的按 Bot 钩子（botharness `contributeBotAgentSetup`），给每个列出的 Bot 的前台和它派出的任务挂工具。

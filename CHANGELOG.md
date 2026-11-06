@@ -11,6 +11,7 @@
 - 按名字列 Bot、用模板生成路径：`bots` 的键可以写 Bot 名字（插件到 Tobs 里找编号）；`template` 里的 `{name}`、`{slug}` 换成 Bot 的名字和编号。旧写法照样能用。
 - 常驻进程：每个 Bot 的每个库一个常驻 MCP 进程，空闲 5 分钟退出，最多同时 8 个，进程中途退出就换新的再试一次。连续调用平均从 54.6 毫秒降到 4.2 毫秒一次（`scripts/bench-calls.mjs`）。`keepAlive: false` 回到每次新起进程。
 - 演示数据：`env` 里写 `MEMV2_URL: 'demo'`、`JAVIS_URL: 'demo'`，Bot 就从附带的虚构数据回答，不要令牌；`memory_status` 会说明是演示数据；README 配了截图。
+- 用法说明：技能 `skills/javmem-memory/SKILL.md` 和前台规则片段 `docs/front-rules.md`（先 recall 再 search、金额以 memv2 为准、名字要对得上），和工具说明一致，测试会核对。
 
 English:
 
@@ -23,6 +24,7 @@ English:
 - Bots by name, paths from a template: a key in `bots` may be a Bot name (the plugin finds its id in Tobs); `{name}` and `{slug}` in `template` become the Bot's name and id. The old form still works.
 - Long-lived processes: one MCP server process per Bot and store, stopped after 5 idle minutes, at most 8 at once, replaced and the call retried once when it dies mid-call. Consecutive calls went from 54.6 ms to 4.2 ms each on average (`scripts/bench-calls.mjs`). `keepAlive: false` goes back to a process per call.
 - Demo data: with `MEMV2_URL: 'demo'` and `JAVIS_URL: 'demo'` in `env`, a Bot answers from the bundled made-up data, no token; `memory_status` says it is demo data; the README has a picture.
+- Usage notes: the skill `skills/javmem-memory/SKILL.md` and the front-rules snippet `docs/front-rules.md` (recall first, then search; amounts count from memv2; names must match), in line with the tools' guidance, checked by a test.
 
 ## 0.2.2
 
