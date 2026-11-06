@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-two-memory",
-  "version": "0.1.0",
-  "description": "DeepSeek Harness (Tobs) plugin: read-only memory tools from memv2 and Javis for the Bots you list, with no per-Bot private MCP card.",
+  "version": "0.2.0",
+  "description": "DeepSeek Harness (Tobs) plugin: read-only memory tools from memv2 and Javis for the Bots you list (one combined tool or the two single-store ones), with no per-Bot private MCP card.",
   "type": "module",
   "main": "./index.mjs",
   "exports": {

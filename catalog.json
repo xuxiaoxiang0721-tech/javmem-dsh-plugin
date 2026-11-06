@@ -202,5 +202,141 @@
     "additionalProperties": false
    }
   }
+ ],
+ "memory": [
+  {
+   "name": "recall",
+   "description": "按这一轮的话题取回相关记忆（memv2 里当前有效的事实），每条一行：日期、事实、命名空间；两个库都记了的标「图库也有」。快，适合每轮先查一下。",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string",
+      "description": "要回忆的内容，用自然语言写，最多 4000 字"
+     },
+     "max_chars": {
+      "type": "integer",
+      "minimum": 200,
+      "maximum": 6000,
+      "description": "结果总字数上限，默认 1500"
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "search",
+   "description": "同时查两个库：memv2 的事实（事实、金额以它为准）和图库里的人和关系、时间线。两个库都记了的只列一次，说法不同的并排列出、以 memv2 为准。要来龙去脉、核对、按人名或时间查时用。",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string",
+      "description": "要找的内容，简短关键词最好；只按 entity 查时可以留空"
+     },
+     "entity": {
+      "type": "string",
+      "description": "人名、公司名等，最多 64 字；给了就按这个名字查"
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50,
+      "description": "memv2 最多几条，默认 12"
+     },
+     "include_superseded": {
+      "type": "boolean",
+      "description": "是否带上已被取代、已失效的旧记录，默认否"
+     },
+     "time_from": {
+      "type": "string",
+      "description": "起始时间，ISO 格式，如 2026-01-01（只对 memv2）"
+     },
+     "time_to": {
+      "type": "string",
+      "description": "截止时间，ISO 格式，如 2026-10-31（只对 memv2）"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "search_raw",
+   "description": "按关键词在两个库存的原文里找（用户以前和 AI 的对话），每条给日期、一小段原话和记录号或对话号；问以前聊没聊过、原话怎么说时用。不调用模型。",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string",
+      "description": "关键词，多个词用空格隔开，最多 200 字"
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "description": "每个库最多几条，默认 8"
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "person",
+   "description": "查一个人：图库里他的全部关系（按时间），加上 memv2 里关于他的事实（按时间）。名字要写全，对不上的不算同一个人。",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "人名，最多 64 字"
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 30,
+      "description": "每个库最多几条，默认 15"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "read",
+   "description": "读原文：给 memv2 的记录号读一条记录，或给图库的对话号分页读整段对话（offset 从 0 开始，每页默认 6 条）。两个只给一个。",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "record_key": {
+      "type": "string",
+      "description": "search 或 search_raw 结果里的记录号"
+     },
+     "session_id": {
+      "type": "string",
+      "description": "search、search_raw 或 person 结果里的对话号"
+     },
+     "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "读对话时从第几条开始，默认 0"
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 12,
+      "description": "读对话时这一页最多几条，默认 6"
+     }
+    },
+    "additionalProperties": false
+   }
+  }
  ]
 }

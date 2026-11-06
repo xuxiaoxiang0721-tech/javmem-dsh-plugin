@@ -4,6 +4,20 @@ DeepSeek Harness（Tobs）插件：给你列出的 Bot 挂上只读的记忆工�
 
 ## 装上以后 Bot 能用的工具
 
+每个 Bot 二选一：合起来的一个工具（推荐），或者两个库分开的工具。
+
+合起来的工具（配置里写 `memory`）：
+
+| 工具 | 用途 |
+|---|---|
+| `memory_recall` | 按这一轮的话题取回 memv2 里相关的事实，两个库都记了的标「图库也有」 |
+| `memory_search` | 两个库一起查：先列 memv2 的事实（事实、金额以它为准），再列图库里的人和关系、时间线；重复的只列一次，说法不同的并排写出 |
+| `memory_search_raw` | 按关键词在两个库的原文里找，同一句话只列一行 |
+| `memory_person` | 一个人：图库里他的全部关系，加上 memv2 里关于他的事实，都按时间排 |
+| `memory_read` | 给记录号读 memv2 的记录，或给对话号读图库的整段对话 |
+
+分开的工具（配置里写 `memv2`、`javis`）：
+
 | 工具 | 来自 | 用途 |
 |---|---|---|
 | `memv2_recall` | memv2 | 按这一轮的话题取回相关记忆，适合每轮先查 |
@@ -15,7 +29,7 @@ DeepSeek Harness（Tobs）插件：给你列出的 Bot 挂上只读的记忆工�
 | `javis_find_sessions` | Javis | 按关键词找以前对话的原话 |
 | `javis_get_conversation` | Javis | 按对话号读整段对话 |
 
-工具名、说明和参数来自包里附带的两个 MCP 服务（`mcp/` 目录，复制自 [two-memory-mcp](../two-memory-mcp)），说明是中文，按小模型写得很短。
+工具名、说明和参数来自包里附带的 MCP 服务（`mcp/` 目录，复制自 [two-memory-mcp](../two-memory-mcp)），说明是中文，按小模型写得很短。合起来的工具要给每条标上两个库的对照结果时，在 `env` 里设 `MEMORY_LABELS_FILE`（格式见 two-memory-mcp 的说明）。
 
 ## 怎么工作
 
@@ -47,11 +61,11 @@ DeepSeek Harness（Tobs）插件：给你列出的 Bot 挂上只读的记忆工�
       MEMORY_OWNER: '小明'
       MEMV2_URL: 'http://127.0.0.1:8766'
       JAVIS_URL: 'http://127.0.0.1:8765/mcp'
+      MEMORY_LABELS_FILE: 'D:\memory\labels.json'
     bots:
       bot-0123456789abcdef0123456789abcdef:
         name: Alpha
-        memv2: { MEMV2_TOKEN_FILE: 'D:\memory\tokens\alpha.token' }
-        javis: { JAVIS_TOKEN_FILE: 'D:\memory\profiles\alpha.env' }
+        memory: { MEMV2_TOKEN_FILE: 'D:\memory\tokens\alpha.token', JAVIS_TOKEN_FILE: 'D:\memory\profiles\alpha.env' }
       bot-fedcba9876543210fedcba9876543210:
         name: Beta
         memv2: { MEMV2_TOKEN_FILE: 'D:\memory\tokens\beta.token' }
@@ -60,12 +74,12 @@ DeepSeek Harness（Tobs）插件：给你列出的 Bot 挂上只读的记忆工�
 | 字段 | 说明 |
 |---|---|
 | `mode` | `'on'` 或 `'off'`（加引号，免得被当成是/否） |
-| `bots` | 按 Bot 编号列出。编号就是 DSH 主目录下 `botharness/bots/` 里的文件夹名（`bot-` 加 32 位十六进制）。没写 `memv2` 或 `javis` 的 Bot 就没有那一组工具；`off: true` 可以先停用某个 Bot |
-| `env` | 每次调用都带上的设置，例如 `MEMORY_OWNER`（工具说明里怎么称呼记忆的主人）、`MEMV2_URL`、`JAVIS_URL` |
+| `bots` | 按 Bot 编号列出。编号就是 DSH 主目录下 `botharness/bots/` 里的文件夹名（`bot-` 加 32 位十六进制）。`memory` = 合起来的五个工具（两边的设置都写在里面）；`memv2`、`javis` = 分开的工具，没写的那一组就没有。同一个 Bot 不要既写 `memory` 又写 `memv2`/`javis`。`off: true` 可以先停用某个 Bot |
+| `env` | 每次调用都带上的设置，例如 `MEMORY_OWNER`（工具说明里怎么称呼记忆的主人）、`MEMV2_URL`、`JAVIS_URL`、`MEMORY_LABELS_FILE` |
 | `configFile` | 可选：改用一个 JSON 文件放上面这些字段，改了自动重读，不用重启 |
 | `logFile` | 可选：日志文件路径 |
-| `prefix` | 可选：工具名前缀，默认 `memv2_`、`javis_` |
-| `servers` | 可选：换成你自己的 `memv2-mcp.js`、`javis-mcp.js` 路径 |
+| `prefix` | 可选：工具名前缀，默认 `memory_`、`memv2_`、`javis_` |
+| `servers` | 可选：换成你自己的 `memory-mcp.js`、`memv2-mcp.js`、`javis-mcp.js` 路径 |
 
 只接受 `MEMV2_`、`JAVIS_`、`MEMORY_` 开头的设置；配置里只写路径和设置，不写令牌。
 
@@ -83,7 +97,7 @@ node test/test-plugin.mjs
 
 ## 更新附带的服务
 
-把新版 `memv2-mcp.js`、`javis-mcp.js` 复制进 `mcp/`，再运行 `node scripts/make-catalog.mjs` 生成 `catalog.json`。
+把新版 `memory-mcp.js`、`memv2-mcp.js`、`javis-mcp.js` 复制进 `mcp/`（`mcp/package.json` 让它们按 CommonJS 运行，别删），再运行 `node scripts/make-catalog.mjs` 生成 `catalog.json`。
 
 ## 许可证
 

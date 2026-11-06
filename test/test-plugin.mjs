@@ -116,6 +116,17 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   ok('config file reloaded without a restart');
 }
 
+// 7. A Bot given the combined server gets its five memory_* tools; a service that is down is a tool error.
+{
+  const C = 'bot-cccccccccccccccccccccccccccccccc';
+  const h = host();
+  apply(h.ctx, { mode: 'on', env, logFile, bots: { [C]: { name: 'Gamma', memory: { MEMV2_TOKEN_FILE: tokenFile, JAVIS_TOKEN_FILE: profile } } } });
+  const tools = h.agent(C);
+  assert.deepEqual([...tools.keys()].sort(), ['memory_person', 'memory_read', 'memory_recall', 'memory_search', 'memory_search_raw']);
+  await assert.rejects(() => run(tools.get('memory_search'), { query: 'x' }), /两个库这次都没查成/);
+  ok('combined server: five memory_* tools, both stores down named');
+}
+
 assert.ok(!/"query"/.test(readFileSync(logFile, 'utf8')), 'the log must not hold arguments');
 ok('log holds no arguments');
 console.log(`${passed} checks passed`);

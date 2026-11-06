@@ -7,8 +7,7 @@
 #       bots:
 #         bot-0123456789abcdef0123456789abcdef:
 #           name: Alpha
-#           memv2: { MEMV2_TOKEN_FILE: 'D:\memory\tokens\alpha.token' }
-#           javis: { JAVIS_TOKEN_FILE: 'D:\memory\profiles\alpha.env' }
+#           memory: { MEMV2_TOKEN_FILE: 'D:\memory\tokens\alpha.token', JAVIS_TOKEN_FILE: 'D:\memory\profiles\alpha.env' }
 - insert:
     - id: two-memory
       name: dsh-plugin-two-memory

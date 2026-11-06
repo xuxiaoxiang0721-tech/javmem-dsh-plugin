@@ -2,8 +2,9 @@
 // token form or approval per Bot.
 //
 // For every Bot listed in the config, Tobs's per-Bot agent setup (botharness contributeBotAgentSetup: the front
-// desk and its Assignments) registers the tools of the two bundled MCP servers, mcp/memv2-mcp.js (memv2 fact memory)
-// and mcp/javis-mcp.js (Javis memory graph), as memv2_<tool> and javis_<tool>. Names, descriptions and arguments
+// desk and its Assignments) registers the tools of the bundled MCP servers: mcp/memory-mcp.js (both stores in five
+// tools, as memory_<tool>), or mcp/memv2-mcp.js (memv2 fact memory) and mcp/javis-mcp.js (Javis memory graph) as
+// memv2_<tool> and javis_<tool>. Names, descriptions and arguments
 // are the servers' own (catalog.json, refreshed from their tools/list at load). Each call starts the server with
 // that Bot's settings (its memv2 token file, its Javis profile) plus the shared env, asks the one tool and lets it
 // end, so a Bot sees exactly what its token and profile allow, and a Bot added to the config has memory from its
@@ -11,9 +12,11 @@
 //
 // Config (the cordis row's config, or a JSON file named by configFile that is re-read when it changes):
 //   mode     'on' | 'off' (off registers nothing)
-//   bots     { <bot slug>: { name, off?, memv2?: { ENV: value }, javis?: { ENV: value } } }
-//            A slug is a Bot's folder name under <DSH home>/botharness/bots (bot-<32 hex>). A Bot without memv2
-//            or javis gets no tools of that store. Values are paths and settings, never tokens.
+//   bots     { <bot slug>: { name, off?, memory?: { ENV: value }, memv2?: { ENV: value }, javis?: { ENV: value } } }
+//            A slug is a Bot's folder name under <DSH home>/botharness/bots (bot-<32 hex>). memory = the combined
+//            server's five tools (give it both MEMV2_* and JAVIS_* settings); memv2 / javis = the single-store
+//            servers' tools. Give a Bot either memory or memv2/javis, not both. Values are paths and settings, never
+//            tokens.
 //   env      { ENV: value } given to every call (e.g. MEMORY_OWNER, MEMV2_URL, JAVIS_URL)
 //   prefix   { memv2: 'memv2_', javis: 'javis_' }
 //   servers  { memv2: <path to memv2-mcp.js>, javis: <path to javis-mcp.js> } (default: the bundled copies)
@@ -26,16 +29,21 @@ import { fileURLToPath } from 'node:url';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 
 export const name = 'dsh-plugin-two-memory';
-export const VERSION = '0.1.0';
+export const VERSION = '0.2.0';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const DEFAULTS = {
   catalogFile: join(HERE, 'catalog.json'),
-  servers: { memv2: join(HERE, 'mcp', 'memv2-mcp.js'), javis: join(HERE, 'mcp', 'javis-mcp.js') },
-  prefix: { memv2: 'memv2_', javis: 'javis_' },
+  servers: {
+    memv2: join(HERE, 'mcp', 'memv2-mcp.js'),
+    javis: join(HERE, 'mcp', 'javis-mcp.js'),
+    memory: join(HERE, 'mcp', 'memory-mcp.js'),
+  },
+  prefix: { memv2: 'memv2_', javis: 'javis_', memory: 'memory_' },
   callMs: 120000,
 };
-const STORES = ['memv2', 'javis'];
+// memory = the combined server (both stores in five tools); memv2 and javis = the single-store servers.
+const STORES = ['memv2', 'javis', 'memory'];
 // The servers' own settings come only from the config, never from the host's environment.
 const OWN_ENV = /^(MEMV2_|JAVIS_|MEMORY_)/;
 
@@ -167,7 +175,7 @@ function toolFor(store, t, bot, role, opts, sharedEnv, log) {
           { signal: exec?.signal, timeoutMs: opts.callMs });
       } catch (e) {
         log(`call ${tag} ms=${Date.now() - started} failed=${String(e?.message || e).slice(0, 80)}`);
-        throw new Error(`${store === 'memv2' ? 'memv2' : 'Javis'} 这次没有回应（${String(e?.message || e).slice(0, 80)}），可以稍后再试。`);
+        throw new Error(`${{ memv2: 'memv2', javis: 'Javis', memory: '记忆工具' }[store]}这次没有回应（${String(e?.message || e).slice(0, 80)}），可以稍后再试。`);
       }
       const text = (result?.content || []).filter((c) => c?.type === 'text').map((c) => c.text).join('\n');
       log(`call ${tag} ms=${Date.now() - started} chars=${text.length}${result?.isError ? ' error' : ''}`);
