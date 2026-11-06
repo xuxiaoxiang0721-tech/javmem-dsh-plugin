@@ -22,6 +22,18 @@
    ```
    附件名不带版本号，所以这个链接发下一版后也不会失效（社区规则：`latest/download/` 后面的文件名是照字面取的）。条目描述和插件的实际功能要对得上，功能变了就一起改描述。
 
+   0.3.0 起，插件不再必须有 memv2 和 Javis，条目整份换成：
+
+   ```yaml
+   url: https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin
+   name: xuxiaoxiang0721-tech/javmem-dsh-plugin
+   category: memory
+   tarball: https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin/releases/latest/download/javmem-dsh-plugin.tgz
+   description:
+     en: 'Zero-setup, per-Bot memory for Tobs Bots: a read-only local full-text index of each Bot''s own past conversations (Chinese words found inside sentences), memory imported from other AI tools, a status tool, optional auto recall before a step in which a Human speaks, and a service for other plugins. A Bot can instead query a memv2 fact store and a Javis (Graphiti) graph checked against each other; those two stores are not publicly released.'
+     zh: '给 Tobs Bot 的按 Bot 隔离的记忆，装上就能用：只读地把每个 Bot 自己的历史对话建成本地全文索引（中文词在整句里也能搜到），可导入从别的 AI 工具继承来的记忆，带状态工具、可选的自动召回（只在真人发言时）和给其他插件用的接口。也可以改查 memv2 事实库和 Javis（Graphiti）图谱、两库对照回答；这两个库目前没有公开发布。'
+   ```
+
 ## 装法（发版后）
 
 - npm：DSH 网页插件页按包名 `javmem-dsh-plugin` 安装，或者 `dsh plugin --profile web add javmem-dsh-plugin`。
