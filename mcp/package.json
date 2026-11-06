@@ -1,3 +1,5 @@
 {
+  "description": "javmem-mcp 0.2.0, copied by scripts/vendor-mcp.mjs",
+  "version": "0.2.0",
   "type": "commonjs"
 }

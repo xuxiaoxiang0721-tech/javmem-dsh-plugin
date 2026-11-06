@@ -110,7 +110,7 @@ node test/test-plugin.mjs
 
 ## 更新附带的服务
 
-把新版 `memory-mcp.js`、`memv2-mcp.js`、`javis-mcp.js` 复制进 `mcp/`（`mcp/package.json` 让它们按 CommonJS 运行，别删），再运行 `node scripts/make-catalog.mjs` 生成 `catalog.json`。
+javmem-mcp 出了新版本后，运行 `node scripts/vendor-mcp.mjs <javmem-mcp 所在目录>`：它把 `memory-mcp.js`、`memv2-mcp.js`、`javis-mcp.js` 复制进 `mcp/`，把 javmem-mcp 的版本号写进 `mcp/package.json`（服务在 MCP 握手里报的就是这个版本；这个文件也让它们按 CommonJS 运行，别删），再重新生成 `catalog.json`。
 
 ## 许可证
 

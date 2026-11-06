@@ -3,9 +3,10 @@
 //   node test/test-plugin.mjs
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { apply, DEFAULTS, normalizeConfig, parameters, VERSION } from '../index.mjs';
+import { apply, callServer, DEFAULTS, normalizeConfig, parameters, VERSION } from '../index.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'javmem-dsh-plugin-'));
 const A = 'bot-0123456789abcdef0123456789abcdef';
@@ -151,6 +152,30 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   assert.match(warned[0], /^javmem-dsh-plugin: warning bot="Delta" has both memory and memv2\/javis set/);
   assert.match(readFileSync(logFile, 'utf8'), /warning bot="Delta" has both memory and memv2\/javis set/);
   ok('one version; a Bot with both tool sets is warned about');
+}
+
+// 9. The start line in the log and the MCP handshake (clientInfo) carry package.json's version; the bundled servers
+//    report the javmem-mcp version recorded in mcp/package.json.
+{
+  const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.match(readFileSync(logFile, 'utf8'), new RegExp(`javmem started v=${version.replace(/\./g, '\\.')} `));
+  const echo = join(scratch, 'echo-server.cjs');
+  writeFileSync(echo, [
+    "let info = null;",
+    "require('readline').createInterface({ input: process.stdin }).on('line', (line) => {",
+    "  const m = JSON.parse(line);",
+    "  const answer = (result) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }) + '\\n');",
+    "  if (m.method === 'initialize') { info = m.params.clientInfo; answer({ protocolVersion: m.params.protocolVersion, capabilities: {}, serverInfo: { name: 'echo', version: '0' } }); }",
+    "  else if (m.method === 'tools/call') answer({ content: [{ type: 'text', text: JSON.stringify(info) }] });",
+    "});",
+  ].join('\n'));
+  const r = await callServer(echo, {}, 'echo', {});
+  assert.deepEqual(JSON.parse(r.content[0].text), { name: 'javmem-dsh-plugin', version });
+  const vendored = JSON.parse(readFileSync(new URL('../mcp/package.json', import.meta.url), 'utf8')).version;
+  const require = createRequire(import.meta.url);
+  assert.equal(require('../mcp/memv2-mcp.js').VERSION, vendored);
+  assert.equal(require('../mcp/javis-mcp.js').VERSION, vendored);
+  ok('log and handshake report package.json\'s version; bundled servers report javmem-mcp\'s');
 }
 
 assert.ok(!/"query"/.test(readFileSync(logFile, 'utf8')), 'the log must not hold arguments');
