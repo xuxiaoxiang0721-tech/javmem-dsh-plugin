@@ -66,6 +66,26 @@ The same tools work in Claude Code and other MCP clients through [javmem-mcp](ht
 - **Memory inherited from other AIs**: with javmem-mcp's [export prompt](https://github.com/xuxiaoxiang0721-tech/javmem-mcp/blob/main/docs/inherit-prompt.md), an AI such as Grok, Muse or Dot writes what it remembers as a package; save it as a file in `<DSH home>/javmem/inherit/<Bot name or id>/` and the plugin adds it to that Bot's local store on its next pass, each item marked with where it came from, each file once (`inheritDir` changes the folder).
 - The tools have the same names as the combined set (`memory_recall`, `memory_search`, `memory_search_raw`, `memory_person`, `memory_read`), so a Bot's rules stay the same when it moves to memv2 and Javis.
 
+## Choosing a backend: A, B, C, D
+
+The local store (D) costs nothing and works as installed. For memory with more depth, pick one of four:
+
+| Option | `backend` | What it keeps | Cost per 1,000 messages | What it needs | The Bot's tools |
+|---|---|---|---|---|---|
+| D local store (default) | `local` | the original words, searchable by words (Chinese too) | 0 | nothing | `memory_*` (5) |
+| B fact store | `memv2` | D plus extracted facts, old and new kept apart | about 600,000 tokens | memv2-lite (Node, no Docker) | `memv2_*` (4) |
+| C graph | `graphiti` | D plus people, things and how they relate over time | about 2.5 million tokens | the official Graphiti server (Docker, about 11 GB) | `javis_*` (4) |
+| A full set | `full` | B and C, answered side by side | about 3.1 million tokens | both (one compose, about 12 GB) | `memory_*` (5) |
+
+Costs are estimates from a test on 2026-11-06 with gpt-6-luna on made-up conversations; the models can be OpenAI, DeepSeek with Qwen, or a local Ollama (free, needs a strong computer). Both stores start empty.
+
+- **One command**: `npx -y javmem-mcp setup` explains the four choices and their cost, asks for the models and a daily limit, **shows the quote first and writes nothing until you say yes**: the model settings, the services to start, the tokens, and the plugin config (`plugin-config.json`, to use as the plugin's `configFile` or copy into its config). It starts nothing and sends nothing anywhere.
+- **Estimate first**: `npx -y javmem-mcp estimate <local store or inherited packages>` prints counts and estimated tokens only.
+- **In**: Bots on B, C and A keep their local store; after each pass over a Bot's new conversations the plugin sends the settled stretches on (each once). The graph has a daily limit per Bot (`backends.graphiti.dailyTokens`); the fact store keeps its own (`MEMV2_DAILY_TOKENS`). The log holds counts only.
+- **One per Bot**: a namespace (fact store) and a group (graph) per Bot, `bot-<Bot id>` by default, invisible to the others.
+- **Auto recall** works with D, B and A; C has no recall tool.
+- `memory_status` reports whether each store answers, how much it holds, what is still queued and the tokens spent today.
+
 ## Try it first: demo data
 
 See what memv2 and Javis give before setting either up: set `MEMV2_URL` and `JAVIS_URL` to `demo` in the config's `env`, and the Bot answers from made-up data that ships with the package, with no token.
@@ -184,7 +204,7 @@ For memv2 and Javis (Bots given `memory`, `memv2` or `javis`), the plugin only q
 - **memv2 running**, at an address the plugin knows (default `http://127.0.0.1:8766`, port 8766 on this machine). Every Bot needs a read-only token, its library card so to speak: memv2's administrator issues it and decides at that moment which partitions it may read. The token lives in a file; the config only holds that file's path.
 - **Javis running**, at an address the plugin knows (default `http://127.0.0.1:8765/mcp`). Every Bot has a profile naming the accounts it may see and the file that holds Javis's token (format in the javmem-mcp README).
 
-**Note**: the SQLite under memv2 and the Graphiti and Neo4j under Javis are public and can be installed; memv2 and Javis themselves are not publicly released at the moment, and the plugin talks to their own query interfaces. So SQLite, Graphiti and Neo4j alone do not make these two backends; without them, use zero-setup mode.
+**Note**: the original memv2 and Javis are not publicly released at the moment, and the settings above talk to their own query interfaces. Without them: besides zero-setup mode, there are the public memv2-lite and the official Graphiti server (`backend: memv2`, `graphiti`, `full`, see "Choosing a backend").
 
 ## Configuration
 
@@ -213,7 +233,8 @@ Override the row by its id in your profile's `cordis.patch.yml`:
 | `mode` | `'on'` or `'off'` (quoted, so YAML does not read a yes/no) |
 | `bots` | Bots by id or by name. The id is the Bot's folder name under `botharness/bots/` in the DSH home (`bot-` plus 32 hex digits); for a name the plugin finds the id in Tobs (next section). `memory` = the five combined tools (with both stores' settings inside); `memv2`, `javis` = the tools of each store apart, and a store left out gives no tools. Give a Bot either `memory` or `memv2`/`javis`: a Bot given both gets only the `memory` tools, with a warning. `off: true` parks a Bot |
 | `template` | optional: settings for every Bot whose entry names no store; `{name}` and `{slug}` become the Bot's name and id (next section) |
-| `backend` | optional: what a Bot gets that names no store and has no template. `'local'` (default) = the local store; `'none'` = no tools (the way before 0.3.0) |
+| `backend` | optional: what a Bot gets that names no store and has no template. `'local'` (default) = the local store; `'memv2'`, `'graphiti'`, `'full'` = the fact store, the graph, the full set (see "Choosing a backend"; they need `backends`); `'none'` = no tools (the way before 0.3.0) |
+| `backends` | the services behind B, C and A. `memv2`: `url`, `tokenFile` (the read-only token file the Bots query with), `writeTokenFile` (the writable one the plugin sends conversations with), `namespace` (default `bot-{slug}`); `graphiti`: `url` (default `http://127.0.0.1:8000/mcp/`), `group` (default `bot-{slug}`), `dailyTokens` (each Bot's daily limit, default 1000000), `window` (episodes in flight, default 4). The setup wizard writes them |
 | `localDir` | optional: the folder of the local stores, default `<DSH home>/javmem/local` |
 | `inheritDir` | optional: the folder of inherited packages, default `<DSH home>/javmem/inherit`; each Bot reads its `<Bot id>/` and `<Bot name>/` in it |
 | `autoRecall` | optional: auto recall, off by default. `true` or `{ maxChars }` turns it on for every listed Bot; a Bot's entry may say so too (see "Auto recall") |

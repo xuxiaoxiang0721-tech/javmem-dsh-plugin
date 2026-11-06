@@ -620,6 +620,69 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   ok('inherited memory: a package in the Bot\'s inherit folder is taken in once, marked, for that Bot only');
 }
 
+// 20. Backends B, C and A (backend memv2, graphiti, full, item 13): a listed Bot that names no store gets memv2-lite's
+//     tools, the graph's, or the combined set, with its own namespace or group (bot-<id>) and its local store as the
+//     source of what goes in; after each pass of its local store, its conversations are sent on (feed.js), with the
+//     Bot's name and the owner's; a wrong or missing setting is named.
+{
+  const K = 'bot-kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk';
+  const ldir = join(scratch, 'ldir20');
+  const bk = {
+    memv2: { url: 'http://127.0.0.1:9', tokenFile: join(scratch, 'reader20.token'), writeTokenFile: join(scratch, 'feeder20.token') },
+    graphiti: { url: 'http://127.0.0.1:9/mcp/', dailyTokens: 500000 },
+  };
+  const of = (backend) => resolveBots(normalizeConfig({ backend, backends: bk, bots: { [K]: {} } }), null, { localDir: ldir }).bots[K];
+  const db = join(ldir, `${K}.sqlite`);
+  const b = of('memv2');
+  assert.deepEqual(b.memv2, { MEMV2_URL: 'http://127.0.0.1:9', MEMV2_TOKEN_FILE: bk.memv2.tokenFile, MEMV2_NAMESPACE: `bot-${K}` });
+  assert.deepEqual([!!b.local, !!b.javis, b.localDb, Object.keys(b.feed)], [false, false, db, ['memv2']]);
+  const c = of('graphiti');
+  assert.deepEqual(c.javis, { JAVIS_BACKEND: 'graphiti', JAVIS_URL: 'http://127.0.0.1:9/mcp/', GRAPHITI_GROUP_ID: `bot-${K}`, JAVMEM_LOCAL_DB: db, GRAPHITI_DAILY_TOKENS: '500000' });
+  assert.deepEqual(c.feed, { graphiti: { url: 'http://127.0.0.1:9/mcp/', group: `bot-${K}`, dailyTokens: 500000, window: 4 } });
+  const a = of('full');
+  assert.ok(a.memory.MEMV2_NAMESPACE === `bot-${K}` && a.memory.JAVIS_BACKEND === 'graphiti' && a.memory.JAVMEM_LOCAL_DB === db);
+  assert.deepEqual(Object.keys(a.feed), ['memv2', 'graphiti']);
+  const texts = (raw) => normalizeConfig(raw).problems.map((p) => p.text);
+  assert.ok(texts({ backend: 'memv2', bots: { [K]: {} } }).some((t) => /backend memv2 needs backends\.memv2\.url and backends\.memv2\.tokenFile/.test(t)));
+  const wrong = texts({ backend: 'cloud', backends: { memv2: { url: 5 }, x: {} } });
+  for (const t of ["backend is none of local, memv2, graphiti, full, none, so 'local' is used", 'unknown field backends.x',
+    'backends.memv2.url is not text, so it is ignored']) assert.ok(wrong.includes(t), t);
+  assert.ok(fileProblems({ env: {}, bots: resolveBots(normalizeConfig({ backend: 'full', backends: bk, bots: { [K]: {} } }), null, { localDir: ldir }).bots })
+    .some((p) => /missing file backends\.memv2\.writeTokenFile=/.test(p.text)));
+
+  // In the plugin: the combined tools for backend full, and both feeders after the Bot's first local pass.
+  const dir = join(scratch, 'bots', K, 'memory');
+  const t0 = Date.parse('2026-10-02T13:30:00Z');
+  const sessionQuery = {
+    async filterSessions(filters) {
+      return filters.find((f) => f.kind === 'cwd').values.includes(dir) ? [{ header: { id: 'sess-k1', cwd: dir }, live: false, persisted: true }] : [];
+    },
+    async readSession(id) {
+      return { session: { id }, inheritedEventCount: 0, events: [{ seq: 0, type: 'session', time: t0, data: {} },
+        { seq: 1, type: 'user/message', time: t0 + 60000, data: { role: 'user', id: 'u1', source: { kind: 'user', rpcId: 'r1' }, content: [{ type: 'text', text: '小雨的游泳课改到每周三下午了。' }] } }] };
+    },
+  };
+  const calls = [];
+  const feeds = {
+    feedMemv2: async (store, o) => { calls.push(['memv2', o.namespace, o.owner, o.assistant, typeof store.unfed]); return { sent: 1, windows: 1 }; },
+    feedGraphiti: async (store, o) => {
+      calls.push(['graphiti', o.group, o.dailyTokens, o.owner, o.assistant]);
+      return { added: 1, sent: 1, confirmed: 0, resent: 0, counts: { done: 0, sent: 1, pending: 0, failed: 0 }, today: { tokens: 20000, segments: 1 }, stopped: null };
+    },
+  };
+  const registry = { get: (s) => (s === K ? { slug: K, name: 'Kilo' } : undefined), list: () => [], memoryDirFor: () => dir };
+  const h = host(registry, { sessionQuery, rootDir: join(scratch, 'home20', 'botharness') });
+  apply(h.ctx, { mode: 'on', logFile, feeds, backend: 'full', backends: bk, localDir: ldir, env: { MEMORY_OWNER: '小明' }, bots: { [K]: {} } });
+  assert.deepEqual([...h.agent(K).keys()].sort(), ['memory_person', 'memory_read', 'memory_recall', 'memory_search', 'memory_search_raw', 'memory_status']);
+  for (let i = 0; i < 100 && calls.length < 2; i += 1) await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(calls, [['memv2', `bot-${K}`, '小明', 'Kilo', 'function'], ['graphiti', `bot-${K}`, 500000, '小明', 'Kilo']]);
+  assert.ok(existsSync(db), 'the Bot\'s local store is built: it is what goes in');
+  const logText = readFileSync(logFile, 'utf8');
+  assert.match(logText, /feed memv2 bot="Kilo" sent=1 windows=1/);
+  assert.match(logText, /feed graphiti bot="Kilo" added=1 sent=1 confirmed=0 resent=0 done=0 waiting=1 today=20000/);
+  ok('backends memv2, graphiti, full: tools, namespace and group per Bot, the local store fed on, settings checked');
+}
+
 assert.ok(!/"query"/.test(readFileSync(logFile, 'utf8')), 'the log must not hold arguments');
 ok('log holds no arguments');
 console.log(`${passed} checks passed`);

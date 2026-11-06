@@ -66,6 +66,26 @@
 - **继承别的 AI 的记忆**：用 javmem-mcp 的 [导出提示词](https://github.com/xuxiaoxiang0721-tech/javmem-mcp/blob/main/docs/inherit-prompt.md) 让 Grok、Muse、Dot 这类 AI 把记得的事写成一个包，存成文件放进 `<DSH 主目录>/javmem/inherit/<Bot 名字或编号>/`，插件下次补录时导进这个 Bot 的本地库，每条标上「继承自某某」，同一个文件只导一次（`inheritDir` 可改文件夹）。
 - 工具和合起来的工具同名（`memory_recall`、`memory_search`、`memory_search_raw`、`memory_person`、`memory_read`），以后换成 memv2 和 Javis，Bot 的规则不用改。
 
+## 选后端：A、B、C、D
+
+本地库（D）不花钱、装上就有。想让 Bot 记得更「立体」，可以换成别的后端，四种选一种：
+
+| 选项 | `backend` | 记什么 | 每 1,000 条消息大约花 | 要装什么 | Bot 的工具 |
+|---|---|---|---|---|---|
+| D 本地库（默认） | `local` | 原话，按词搜（中文也行） | 0 | 什么都不用装 | `memory_*`（5 个） |
+| B 事实库 | `memv2` | D 加上抽出来的事实，分得清新旧 | 约 60 万 token | memv2 精简版（Node，不用 Docker） | `memv2_*`（4 个） |
+| C 图谱 | `graphiti` | D 加上人和事的关系、时间线 | 约 250 万 token | Graphiti 官方服务（Docker，约 11 GB） | `javis_*`（4 个） |
+| A 全套 | `full` | B 加 C，两个库对照着回答 | 约 310 万 token | 两个都要（一个 compose，约 12 GB） | `memory_*`（5 个） |
+
+花费按 2026-11-06 用 gpt-6-luna 在虚构对话上实测估算；模型可以选 OpenAI、DeepSeek 加千问、或本机 Ollama（不花钱，要好机器）。两个库一开始都是空的。
+
+- **一条命令配好**：`npx -y javmem-mcp setup`。它讲清四种的区别和花费，问你用哪种模型、每天最多花多少，**先报价，你说好了才写文件**：模型设置、要起的服务、令牌，还有给插件的配置（`plugin-config.json`，设成插件的 `configFile`，或抄进插件配置）。它不启动任何东西，也不往外发东西。
+- **先估一估**：`npx -y javmem-mcp estimate <本地库或继承包>`，只报条数和估算的 token。
+- **送进去**：B、C、A 的 Bot 照样有本地库；插件每次补录完这个 Bot 的新对话，就把攒好的段落送进所选的库（每段只送一次），图谱每天有上限（`backends.graphiti.dailyTokens`），事实库的上限在它自己那边（`MEMV2_DAILY_TOKENS`）。日志里只有条数。
+- **按 Bot 分开**：每个 Bot 一个分区（事实库）、一个组（图谱），默认都叫 `bot-<Bot 编号>`，互相看不到。
+- **自动召回**：D、B、A 能用；C 没有 recall 工具，不能用。
+- `memory_status` 报每个库连没连上、库里有多少、还有多少在排队、今天用了多少 token。
+
 ## 先试试：演示数据
 
 想看看换成 memv2 和 Javis 以后是什么样，不用先搭这两个库：在配置的 `env` 里把 `MEMV2_URL` 和 `JAVIS_URL` 设成 `demo`，Bot 就从包里自带的虚构数据回答，不要令牌。
@@ -184,7 +204,7 @@ export function apply(ctx) {
 - **memv2 在运行**，插件要知道它的地址（默认 `http://127.0.0.1:8766`，即本机的 8766 端口）。每个 Bot 还要一个只读令牌，相当于这个 Bot 的借阅证：由 memv2 的管理员发，发的时候就定好它能查哪些分区。令牌存在一个文件里，配置里只写这个文件的路径。
 - **Javis 在运行**，插件要知道它的地址（默认 `http://127.0.0.1:8765/mcp`）。每个 Bot 一个配置文件，写明它能看哪些账号、Javis 的令牌存在哪个文件（格式见 javmem-mcp 的说明）。
 
-**注意**：memv2 底下用的 SQLite、Javis 底下用的 Graphiti 和 Neo4j 都是公开的，可以自己装；但 memv2 和 Javis 这两层目前没有公开发布，而插件调用的正是它们自己的查询接口。所以光装 SQLite、Graphiti、Neo4j 还接不上 memv2 和 Javis 这两种后端；没有它们，就用零准备模式。
+**注意**：原版 memv2 和 Javis 目前没有公开发布，上面这种写法调用的正是它们自己的查询接口。没有它们也能用：除了零准备模式，还可以选公开的 memv2 精简版和 Graphiti 官方服务（`backend: memv2`、`graphiti`、`full`，见「选后端」）。
 
 ## 配置
 
@@ -213,7 +233,8 @@ export function apply(ctx) {
 | `mode` | `'on'` 或 `'off'`（加引号，免得被当成是/否） |
 | `bots` | 按 Bot 编号或名字列出。编号就是 DSH 主目录下 `botharness/bots/` 里的文件夹名（`bot-` 加 32 位十六进制）；写名字时插件到 Tobs 里找编号（见下一节）。`memory` = 合起来的五个工具（两边的设置都写在里面）；`memv2`、`javis` = 分开的工具，没写的那一组就没有。同一个 Bot 只写 `memory`，或只写 `memv2`/`javis`：两样都写了，只挂 `memory` 那一组，并记一条警告。`off: true` 可以先停用某个 Bot |
 | `template` | 可选：给没写任何一组工具的 Bot 用的设置，`{name}`、`{slug}` 换成 Bot 的名字和编号（见下一节） |
-| `backend` | 可选：没写任何一组工具、也没有模板的 Bot 用什么。`'local'`（默认）= 本地库；`'none'` = 不挂工具（0.3.0 以前的做法） |
+| `backend` | 可选：没写任何一组工具、也没有模板的 Bot 用什么。`'local'`（默认）= 本地库；`'memv2'`、`'graphiti'`、`'full'` = 事实库、图谱、全套（见「选后端」，要配 `backends`）；`'none'` = 不挂工具（0.3.0 以前的做法） |
+| `backends` | 选 B、C、A 时用的服务。`memv2`：`url`、`tokenFile`（Bot 查用的只读令牌文件）、`writeTokenFile`（插件送对话用的可写令牌文件）、`namespace`（默认 `bot-{slug}`）；`graphiti`：`url`（默认 `http://127.0.0.1:8000/mcp/`）、`group`（默认 `bot-{slug}`）、`dailyTokens`（每个 Bot 每天的上限，默认 1000000）、`window`（同时在处理的段数，默认 4）。安装向导会写好 |
 | `localDir` | 可选：本地库放在哪个文件夹，默认 `<DSH 主目录>/javmem/local` |
 | `inheritDir` | 可选：放继承包的文件夹，默认 `<DSH 主目录>/javmem/inherit`；每个 Bot 读其中的 `<Bot 编号>/` 和 `<Bot 名字>/` |
 | `autoRecall` | 可选：自动召回，默认关。`true` 或 `{ maxChars }` 给所有列出的 Bot 打开；Bot 条目里也可以单独写（见「自动召回」） |

@@ -39,6 +39,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -84,9 +85,15 @@ function logger(file) {
 
 // Fields a config may carry: FILE_FIELDS in a configFile or the row, ROW_FIELDS only in the cordis row (call and now
 // are for tests), BOT_FIELDS in one Bot's entry.
-const FILE_FIELDS = ['mode', 'bots', 'env', 'template', 'backend', 'localDir', 'inheritDir', 'autoRecall'];
+const FILE_FIELDS = ['mode', 'bots', 'env', 'template', 'backend', 'backends', 'localDir', 'inheritDir', 'autoRecall'];
+// backend: what a listed Bot that names no store (and has no template) gets. local = D (its own past conversations,
+// free), memv2 = B (memv2-lite's facts), graphiti = C (the official Graphiti graph), full = A (both, cross-checked),
+// none = nothing. memv2, graphiti and full also send the Bot's conversations to those services (backends.*).
+const BACKEND_NAMES = ['local', 'memv2', 'graphiti', 'full', 'none'];
+const BACKEND_FIELDS = { memv2: ['url', 'tokenFile', 'writeTokenFile', 'namespace'], graphiti: ['url', 'group', 'dailyTokens', 'window'] };
+const GRAPHITI_URL = 'http://127.0.0.1:8000/mcp/';
 const ROW_FIELDS = ['configFile', 'catalogFile', 'logFile', 'callMs', 'prefix', 'servers', 'statusTool',
-  'keepAlive', 'idleMs', 'maxProcesses', 'indexMaxAgeMs', 'indexEveryMs', 'call', 'now'];
+  'keepAlive', 'idleMs', 'maxProcesses', 'indexMaxAgeMs', 'indexEveryMs', 'call', 'now', 'feeds'];
 const BOT_FIELDS = ['name', 'off', 'autoRecall', ...STORES];
 // Tobs's own pattern for a Bot id (slug).
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -155,10 +162,33 @@ export function normalizeConfig(raw = {}, from = 'row') {
     }
     return out;
   };
-  // backend: what a listed Bot that names no store (and has no template) gets: 'local' (default, its own past
-  // conversations) or 'none' (no tools, as before 0.3.0).
-  const backend = input.backend === undefined ? 'local' : input.backend;
-  if (!['local', 'none'].includes(backend)) note(`backend is neither 'local' nor 'none', so 'local' is used`);
+  // backend: what a listed Bot that names no store (and has no template) gets (BACKEND_NAMES; default local).
+  let backend = input.backend === undefined ? 'local' : input.backend;
+  if (!BACKEND_NAMES.includes(backend)) {
+    note(`backend is none of ${BACKEND_NAMES.join(', ')}, so 'local' is used`);
+    backend = 'local';
+  }
+  // backends: the services behind memv2, graphiti and full. Values are text, except graphiti's two numbers.
+  const backends = {};
+  if (input.backends !== undefined && !isObject(input.backends)) note('backends is not a set of services, so it is ignored');
+  for (const [svc, v] of Object.entries(isObject(input.backends) ? input.backends : {})) {
+    if (!BACKEND_FIELDS[svc]) { note(`unknown field backends.${svc}`); continue; }
+    if (!isObject(v)) { note(`backends.${svc} is not a set of settings, so it is ignored`); continue; }
+    backends[svc] = {};
+    for (const [k, x] of Object.entries(v)) {
+      const numeric = ['dailyTokens', 'window'].includes(k);
+      if (!BACKEND_FIELDS[svc].includes(k)) note(`unknown field backends.${svc}.${k}`);
+      else if (numeric ? !(Number.isFinite(x) && x >= 0) : typeof x !== 'string' || !x.trim()) {
+        note(`backends.${svc}.${k} is not ${numeric ? 'a number' : 'text'}, so it is ignored`);
+      } else backends[svc][k] = numeric ? x : x.trim();
+    }
+  }
+  if (['memv2', 'full'].includes(backend) && !(backends.memv2 && backends.memv2.url && backends.memv2.tokenFile)) {
+    note(`backend ${backend} needs backends.memv2.url and backends.memv2.tokenFile (the setup wizard writes them: npx -y javmem-mcp setup)`);
+  }
+  if (['memv2', 'full'].includes(backend) && !(backends.memv2 && backends.memv2.writeTokenFile)) {
+    note(`backend ${backend} has no backends.memv2.writeTokenFile, so the Bots' conversations are not sent to memv2`);
+  }
   // template: store settings every listed Bot gets when its own entry names no store; {name} and {slug} in a value
   // become the Bot's name and id.
   let template = {};
@@ -201,7 +231,7 @@ export function normalizeConfig(raw = {}, from = 'row') {
   const inheritDir = typeof input.inheritDir === 'string' && input.inheritDir.trim() ? input.inheritDir.trim() : undefined;
   if (input.inheritDir !== undefined && !inheritDir) note('inheritDir is not a path, so the default is used');
   const autoRecall = input.autoRecall === undefined ? null : recallSetting(input.autoRecall, 'autoRecall', null);
-  return { mode, bots, env, template, backend: backend === 'none' ? 'none' : 'local', localDir, inheritDir, autoRecall, from, overlap, problems };
+  return { mode, bots, env, template, backend, backends, localDir, inheritDir, autoRecall, from, overlap, problems };
 }
 
 // A Bot name as it may stand in a path: characters that paths cannot hold (or that would make it a folder) become _.
@@ -213,19 +243,44 @@ const pathSafe = (s) => String(s).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').tri
  * {slug} filled in) sit under the Bot's own. The local store's file is <localDir>/<Bot id>.sqlite unless
  * JAVMEM_LOCAL_DB says otherwise.
  */
-function materialize(entry, name, slug, template = {}, { backend = 'local', localDir } = {}) {
+function materialize(entry, name, slug, template = {}, { backend = 'local', localDir, backends = {} } = {}) {
   const own = STORES.filter((s) => entry[s]);
   const fromTemplate = STORES.filter((s) => template[s]);
-  const stores = own.length ? own : (fromTemplate.length ? fromTemplate : (backend === 'local' ? ['local'] : []));
+  const byBackend = { local: ['local'], memv2: ['memv2'], graphiti: ['javis'], full: ['memory'], none: [] };
+  const fromBackend = !own.length && !fromTemplate.length;
+  const stores = own.length ? own : (fromTemplate.length ? fromTemplate : byBackend[backend] || []);
   const fill = (v) => v.replaceAll('{name}', pathSafe(name)).replaceAll('{slug}', slug);
   const out = { name, ...(entry.autoRecall !== undefined ? { autoRecall: entry.autoRecall } : {}) };
+  const localDb = localDir ? join(localDir, `${slug}.sqlite`) : undefined;
+  if (fromBackend && ['memv2', 'graphiti', 'full'].includes(backend)) {
+    // B, C and A: the services in backends, one namespace or group per Bot, fed from the Bot's local store.
+    const m = backends.memv2 || {};
+    const g = backends.graphiti || {};
+    const memv2 = { MEMV2_URL: m.url || '', MEMV2_TOKEN_FILE: fill(m.tokenFile || ''), MEMV2_NAMESPACE: fill(m.namespace || 'bot-{slug}') };
+    const graph = {
+      JAVIS_BACKEND: 'graphiti', JAVIS_URL: g.url || GRAPHITI_URL, GRAPHITI_GROUP_ID: fill(g.group || 'bot-{slug}'),
+      JAVMEM_LOCAL_DB: localDb || '', GRAPHITI_DAILY_TOKENS: String(g.dailyTokens ?? 1000000),
+    };
+    if (backend === 'memv2') out.memv2 = memv2;
+    if (backend === 'graphiti') out.javis = graph;
+    if (backend === 'full') out.memory = { ...memv2, ...graph };
+    out.localDb = localDb;
+    out.feed = {};
+    if (backend !== 'graphiti' && m.url && m.writeTokenFile) {
+      out.feed.memv2 = { url: m.url, tokenFile: fill(m.writeTokenFile), namespace: memv2.MEMV2_NAMESPACE };
+    }
+    if (backend !== 'memv2') {
+      out.feed.graphiti = { url: graph.JAVIS_URL, group: graph.GRAPHITI_GROUP_ID, dailyTokens: g.dailyTokens ?? 1000000, window: g.window || 4 };
+    }
+    return out;
+  }
   for (const s of stores) {
     out[s] = {
       ...Object.fromEntries(Object.entries(template[s] || {}).map(([k, v]) => [k, fill(v)])),
       ...(entry[s] || {}),
     };
   }
-  if (out.local && !out.local.JAVMEM_LOCAL_DB && localDir) out.local.JAVMEM_LOCAL_DB = join(localDir, `${slug}.sqlite`);
+  if (out.local && !out.local.JAVMEM_LOCAL_DB && localDb) out.local.JAVMEM_LOCAL_DB = localDb;
   return out;
 }
 
@@ -281,7 +336,7 @@ export function resolveBots(config, registry, { localDir } = {}) {
       continue;
     }
     bots[slug] = { ...materialize(entry, entry.name || record?.name || key, slug, config.template,
-      { backend: config.backend, localDir: config.localDir || localDir }), key };
+      { backend: config.backend, localDir: config.localDir || localDir, backends: config.backends }), key };
   }
   return { bots, problems };
 }
@@ -323,6 +378,8 @@ export function fileProblems(config, exists = existsSync) {
   check(config.env, 'env', null);
   for (const [slug, bot] of Object.entries(config.bots)) {
     for (const store of STORES) if (bot[store]) check(bot[store], `bots.${slug}.${store}`, slug);
+    const w = bot.feed && bot.feed.memv2 && bot.feed.memv2.tokenFile;
+    if (w && !exists(w)) problems.push({ bot: slug, text: `missing file backends.memv2.writeTokenFile=${w} (nothing is sent to memv2)` });
   }
   return problems;
 }
@@ -815,7 +872,10 @@ export function apply(ctx, rowConfig = {}) {
   const indexer = createIndexer({
     sessionQuery: () => sessionQuery,
     registry: () => registry,
-    dbFor: (slug) => resolve(current()).bots[slug]?.local?.JAVMEM_LOCAL_DB,
+    dbFor: (slug) => {
+      const bot = resolve(current()).bots[slug];
+      return bot?.local?.JAVMEM_LOCAL_DB || bot?.localDb;
+    },
     // javmem packages for a Bot: <inheritDir>/<Bot id>/ and <inheritDir>/<Bot name>/ (default <DSH home>/javmem/inherit)
     inheritDirs: (slug) => {
       const bot = resolve(current()).bots[slug];
@@ -826,16 +886,47 @@ export function apply(ctx, rowConfig = {}) {
     now,
     maxAgeMs: opts.indexMaxAgeMs,
   });
-  const prepare = (store, slug) => (store === 'local' ? indexer.fresh(slug) : null);
-  // Every listed Bot on the local store, one after another: once both services are there, then every indexEveryMs,
+  // A store that reads the original words from the local store: the local store itself, and the graph (find_sessions).
+  const prepare = (store, slug) => (store === 'local' || (store === 'javis' && resolve(current()).bots[slug]?.localDb)
+    ? indexer.fresh(slug) : null);
+  // B, C and A: after a Bot's local store is brought up to date, its new conversations go to memv2-lite and/or the
+  // graph (javmem-mcp's feed.js: settled stretches, each once, within the graph's daily budget). Counts only in the log.
+  const feeds = rowConfig.feeds || createRequire(import.meta.url)('./mcp/feed.js');
+  const feedBot = async (slug, bot) => {
+    if (!bot.feed || !bot.localDb || !existsSync(bot.localDb)) return;
+    const { LocalStore } = createRequire(import.meta.url)('./mcp/local-store.js');
+    const store = new LocalStore(bot.localDb);
+    const names = { owner: current().env.MEMORY_OWNER || '', assistant: bot.name };
+    try {
+      if (bot.feed.memv2) {
+        const r = await feeds.feedMemv2(store, { ...bot.feed.memv2, ...names });
+        log(`feed memv2 bot="${bot.name}" sent=${r.sent} windows=${r.windows}`);
+      }
+      if (bot.feed.graphiti) {
+        const r = await feeds.feedGraphiti(store, { ...bot.feed.graphiti, ...names });
+        log(`feed graphiti bot="${bot.name}" added=${r.added} sent=${r.sent} confirmed=${r.confirmed} resent=${r.resent} `
+          + `done=${r.counts.done} waiting=${r.counts.sent + r.counts.pending} today=${r.today.tokens}${r.stopped ? ` stopped=${r.stopped}` : ''}`);
+      }
+    } catch (e) {
+      log(`feed failed bot="${bot.name}" ${String(e?.message || e).slice(0, 120)}`);
+    } finally {
+      store.close();
+    }
+  };
+  // Every listed Bot on a local store, one after another: once both services are there, then every indexEveryMs,
   // so a Bot's first question does not wait for its whole history.
   let indexing = null;
   const indexAll = () => {
     if (indexing || !registry || !sessionQuery) return indexing;
     const c = current();
     if (c.mode !== 'on') return null;
-    const slugs = Object.entries(resolve(c).bots).filter(([, b]) => b.local).map(([s]) => s);
-    indexing = (async () => { for (const s of slugs) await indexer.refresh(s); })().finally(() => { indexing = null; });
+    const bots = Object.entries(resolve(c).bots).filter(([, b]) => b.local || b.localDb);
+    indexing = (async () => {
+      for (const [s, b] of bots) {
+        await indexer.refresh(s);
+        await feedBot(s, b);
+      }
+    })().finally(() => { indexing = null; });
     return indexing;
   };
   const every = setInterval(() => { indexAll(); }, opts.indexEveryMs);

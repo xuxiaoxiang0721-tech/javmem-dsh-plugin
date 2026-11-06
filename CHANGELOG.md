@@ -16,6 +16,7 @@
 - 自动召回（可选，默认关）：`autoRecall` 打开后，每一步之前只要有真人发言，就用这个 Bot 自己的 recall 取几条，作为带 `javmem-recall` 标记的用户消息插进这一步，不放进系统提示，写明是资料不是指令。
 - 给其他插件的接口：`ctx.javmem`（`bots`、`recall`、`search`、`ask`、`status`），按 Bot 编号直接查这个 Bot 自己的记忆，不经过模型；附例子 `examples/use-javmem-service.mjs`。
 - 继承别的 AI 的记忆：javmem 包（javmem-mcp 的 `javmem-inherit`）放进 `<DSH 主目录>/javmem/inherit/<Bot 名字或编号>/`，补录时导进这个 Bot 的本地库，标上来源，每个文件只导一次。
+- 选后端：`backend` 可以是 `local`（D，默认）、`memv2`（B，memv2 精简版的事实）、`graphiti`（C，Graphiti 官方图谱）、`full`（A，两个都有、合起来的工具），服务写在 `backends` 里；每个 Bot 一个分区和一个组（默认 `bot-<编号>`）。B、C、A 的 Bot 照样有本地库，插件每次补录完就把攒好的段落送进所选的库（javmem-mcp 的 `feed.js`），图谱每天有上限。`npx -y javmem-mcp setup` 写好全部配置。附带 javmem-mcp 的 `graphiti.js`、`feed.js`。
 
 English:
 
@@ -32,6 +33,7 @@ English:
 - Auto recall (optional, off by default): with `autoRecall`, before each step in which a Human speaks, the Bot's own recall is asked and its lines join the step as one user-role message of kind `javmem-recall`, never in the system prompt, marked as material, not instructions.
 - A service for other plugins: `ctx.javmem` (`bots`, `recall`, `search`, `ask`, `status`) asks a Bot's own memory by its id without a model; example in `examples/use-javmem-service.mjs`.
 - Memory inherited from other AIs: a javmem package (javmem-mcp's `javmem-inherit`) in `<DSH home>/javmem/inherit/<Bot name or id>/` goes into that Bot's local store on its next pass, marked with where it came from, each file once.
+- Choosing a backend: `backend` may be `local` (D, the default), `memv2` (B, memv2-lite's facts), `graphiti` (C, the official Graphiti graph) or `full` (A, both, with the combined tools), the services in `backends`; one namespace and one group per Bot (`bot-<id>` by default). Bots on B, C and A keep their local store, and after each pass the plugin sends the settled stretches on (javmem-mcp's `feed.js`), the graph within a daily limit. `npx -y javmem-mcp setup` writes the whole config. Bundles javmem-mcp's `graphiti.js` and `feed.js`.
 - Usage notes: the skill `skills/javmem-memory/SKILL.md` and the front-rules snippet `docs/front-rules.md` (recall first, then search; amounts count from memv2; names must match), in line with the tools' guidance, checked by a test.
 
 ## 0.2.2
