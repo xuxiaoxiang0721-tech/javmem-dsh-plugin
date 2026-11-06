@@ -19,6 +19,7 @@
   },
   "files": [
     "index.mjs",
+    "local-index.mjs",
     "catalog.json",
     "cordis.patch.yml",
     "mcp/",

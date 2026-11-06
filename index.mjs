@@ -38,9 +38,11 @@
 //            answer size, never arguments or memory text; process start, stop and exit lines)
 import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineTool } from '@deepseek-ai/dsh-tools';
+import { createIndexer } from './local-index.mjs';
 
 export const name = 'javmem-dsh-plugin';
 
@@ -55,18 +57,22 @@ export const DEFAULTS = {
     memv2: join(HERE, 'mcp', 'memv2-mcp.js'),
     javis: join(HERE, 'mcp', 'javis-mcp.js'),
     memory: join(HERE, 'mcp', 'memory-mcp.js'),
+    local: join(HERE, 'mcp', 'local-mcp.js'),
   },
-  prefix: { memv2: 'memv2_', javis: 'javis_', memory: 'memory_' },
+  prefix: { memv2: 'memv2_', javis: 'javis_', memory: 'memory_', local: 'memory_' },
   statusTool: 'memory_status',
   callMs: 120000,
   keepAlive: true,
   idleMs: 300000,
   maxProcesses: 8,
+  indexMaxAgeMs: 60000,
+  indexEveryMs: 600000,
 };
 // memory = the combined server (both stores in five tools); memv2 and javis = the single-store servers.
-const STORES = ['memv2', 'javis', 'memory'];
+// local = javmem's zero-setup store (a Bot's own past conversations), the default for a Bot that names no other store.
+const STORES = ['memv2', 'javis', 'memory', 'local'];
 // The servers' own settings come only from the config, never from the host's environment.
-const OWN_ENV = /^(MEMV2_|JAVIS_|MEMORY_)/;
+const OWN_ENV = /^(MEMV2_|JAVIS_|MEMORY_|JAVMEM_)/;
 
 function logger(file) {
   if (!file) return () => {};
@@ -77,9 +83,9 @@ function logger(file) {
 
 // Fields a config may carry: FILE_FIELDS in a configFile or the row, ROW_FIELDS only in the cordis row (call and now
 // are for tests), BOT_FIELDS in one Bot's entry.
-const FILE_FIELDS = ['mode', 'bots', 'env', 'template'];
+const FILE_FIELDS = ['mode', 'bots', 'env', 'template', 'backend', 'localDir'];
 const ROW_FIELDS = ['configFile', 'catalogFile', 'logFile', 'callMs', 'prefix', 'servers', 'statusTool',
-  'keepAlive', 'idleMs', 'maxProcesses', 'call', 'now'];
+  'keepAlive', 'idleMs', 'maxProcesses', 'indexMaxAgeMs', 'indexEveryMs', 'call', 'now'];
 const BOT_FIELDS = ['name', 'off', ...STORES];
 // Tobs's own pattern for a Bot id (slug).
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -130,8 +136,17 @@ export function normalizeConfig(raw = {}, from = 'row') {
       delete out.memv2;
       delete out.javis;
     }
+    // One backend per Bot: the local store gives the same tool names as memory, so it steps back for any other store.
+    if (out.local && (out.memory || out.memv2 || out.javis)) {
+      note(`${where} has both local and memory/memv2/javis; only ${out.memory ? 'memory' : 'memv2/javis'} is used`, bot);
+      delete out.local;
+    }
     return out;
   };
+  // backend: what a listed Bot that names no store (and has no template) gets: 'local' (default, its own past
+  // conversations) or 'none' (no tools, as before 0.3.0).
+  const backend = input.backend === undefined ? 'local' : input.backend;
+  if (!['local', 'none'].includes(backend)) note(`backend is neither 'local' nor 'none', so 'local' is used`);
   // template: store settings every listed Bot gets when its own entry names no store; {name} and {slug} in a value
   // become the Bot's name and id.
   let template = {};
@@ -155,7 +170,9 @@ export function normalizeConfig(raw = {}, from = 'row') {
       note(`bot="${label}" has both memory and memv2/javis set; only the memory tools are registered`, key);
     });
     if (b.name) entry.name = String(b.name);
-    if (!STORES.some((s) => entry[s] || template[s])) note(`bot="${label}" names no store (memory, memv2 or javis), so it gets no tools`, key);
+    if (!STORES.some((s) => entry[s] || template[s]) && backend === 'none') {
+      note(`bot="${label}" names no store (local, memory, memv2 or javis) and backend is 'none', so it gets no tools`, key);
+    }
     bots[key] = entry;
   }
   // YAML 1.1 readers turn a bare on/off into a boolean.
@@ -166,19 +183,24 @@ export function normalizeConfig(raw = {}, from = 'row') {
   let env = {};
   if (input.env !== undefined && !isObject(input.env)) note('env is not a set of settings, so it is ignored');
   else if (input.env !== undefined) env = settings(input.env, 'env', null);
-  return { mode, bots, env, template, from, overlap, problems };
+  const localDir = typeof input.localDir === 'string' && input.localDir.trim() ? input.localDir.trim() : undefined;
+  if (input.localDir !== undefined && !localDir) note('localDir is not a path, so the default is used');
+  return { mode, bots, env, template, backend: backend === 'none' ? 'none' : 'local', localDir, from, overlap, problems };
 }
 
 // A Bot name as it may stand in a path: characters that paths cannot hold (or that would make it a folder) become _.
 const pathSafe = (s) => String(s).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim();
 
 /**
- * One Bot's final store settings: its own stores, or the template's when its entry names none; within a store the
- * template's settings (with {name} and {slug} filled in) sit under the Bot's own.
+ * One Bot's final store settings: its own stores, or the template's when its entry names none, or the local store
+ * when there is no template either and backend is 'local'; within a store the template's settings (with {name} and
+ * {slug} filled in) sit under the Bot's own. The local store's file is <localDir>/<Bot id>.sqlite unless
+ * JAVMEM_LOCAL_DB says otherwise.
  */
-function materialize(entry, name, slug, template = {}) {
+function materialize(entry, name, slug, template = {}, { backend = 'local', localDir } = {}) {
   const own = STORES.filter((s) => entry[s]);
-  const stores = own.length ? own : STORES.filter((s) => template[s]);
+  const fromTemplate = STORES.filter((s) => template[s]);
+  const stores = own.length ? own : (fromTemplate.length ? fromTemplate : (backend === 'local' ? ['local'] : []));
   const fill = (v) => v.replaceAll('{name}', pathSafe(name)).replaceAll('{slug}', slug);
   const out = { name };
   for (const s of stores) {
@@ -187,6 +209,7 @@ function materialize(entry, name, slug, template = {}) {
       ...(entry[s] || {}),
     };
   }
+  if (out.local && !out.local.JAVMEM_LOCAL_DB && localDir) out.local.JAVMEM_LOCAL_DB = join(localDir, `${slug}.sqlite`);
   return out;
 }
 
@@ -195,7 +218,7 @@ function materialize(entry, name, slug, template = {}) {
  * that name, or of that name ignoring case and spaces at the ends). Without a registry an id-shaped key is taken as
  * an id and a name waits. problems names what could not be resolved, with config keys only.
  */
-export function resolveBots(config, registry) {
+export function resolveBots(config, registry, { localDir } = {}) {
   const bots = {};
   const problems = [];
   let records = null;
@@ -241,7 +264,8 @@ export function resolveBots(config, registry) {
       problems.push({ bot: key, text: `bots.${key} is the same Bot as bots.${bots[slug].key} (${slug}); only the first counts` });
       continue;
     }
-    bots[slug] = { ...materialize(entry, entry.name || record?.name || key, slug, config.template), key };
+    bots[slug] = { ...materialize(entry, entry.name || record?.name || key, slug, config.template,
+      { backend: config.backend, localDir: config.localDir || localDir }), key };
   }
   return { bots, problems };
 }
@@ -548,9 +572,9 @@ function readCatalog(file) {
 
 const textOutput = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] };
 
-// who = { slug, bot, role }; deps = { opts, sharedEnv, log, record(slug, { tool, ms, ok }) }.
+// who = { slug, bot, role }; deps = { opts, sharedEnv, log, record(slug, { tool, ms, ok }), prepare(store, slug) }.
 function toolFor(store, t, who, deps) {
-  const { opts, sharedEnv, log, record } = deps;
+  const { opts, sharedEnv, log, record, prepare } = deps;
   const toolName = `${opts.prefix[store]}${t.name}`;
   return defineTool({
     name: toolName,
@@ -563,13 +587,15 @@ function toolFor(store, t, who, deps) {
       const tag = `bot="${who.bot.name}" role=${who.role} tool=${toolName}`;
       let result;
       try {
+        // The local store first takes in what was said since its last pass (at most once a minute).
+        await Promise.resolve(prepare?.(store, who.slug)).catch((e) => log(`prepare ${tag} failed=${String(e?.message || e).slice(0, 80)}`));
         result = await opts.call(opts.servers[store], { ...sharedEnv(), ...who.bot[store] }, t.name, args,
           { signal: exec?.signal, timeoutMs: opts.callMs, label: `bot="${who.bot.name}" store=${store}` });
       } catch (e) {
         const ms = Date.now() - started;
         record(who.slug, { tool: toolName, ms, ok: false });
         log(`call ${tag} ms=${ms} failed=${String(e?.message || e).slice(0, 80)}`);
-        throw new Error(`${{ memv2: 'memv2', javis: 'Javis', memory: '记忆工具' }[store]}这次没有回应（${String(e?.message || e).slice(0, 80)}），可以稍后再试。`);
+        throw new Error(`${{ memv2: 'memv2', javis: 'Javis', memory: '记忆工具', local: '本地记忆库' }[store]}这次没有回应（${String(e?.message || e).slice(0, 80)}），可以稍后再试。`);
       }
       const ms = Date.now() - started;
       const text = (result?.content || []).filter((c) => c?.type === 'text').map((c) => c.text).join('\n');
@@ -581,7 +607,7 @@ function toolFor(store, t, who, deps) {
   });
 }
 
-const STORE_LABEL = { memv2: 'memv2', javis: 'Javis' };
+const STORE_LABEL = { memv2: 'memv2', javis: 'Javis', local: '本地记忆库' };
 const STATE_TEXT = {
   ok: '连得上，令牌可用',
   bad_token: '连得上，但令牌不对',
@@ -589,6 +615,7 @@ const STATE_TEXT = {
   no_token: '令牌没配好',
   error: '出错了',
   demo: '用的是演示数据',
+  empty: '还没有内容',
 };
 const HIDE_TEXT = { ok: '隐藏名单可读', none: '没有隐藏名单', unreadable: '隐藏名单读不了，这样 Javis 一条都不会查' };
 const LABELS_TEXT = { ok: '两库对照标签可读', missing: '两库对照标签文件找不到' };
@@ -600,7 +627,7 @@ const msText = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)} 秒` : `${ms} �
  * javmem/status request, which reads no memory) and shows no token and no memory text.
  */
 function statusTool(who, deps) {
-  const { opts, sharedEnv, problems, recentOf, toolNames } = deps;
+  const { opts, sharedEnv, problems, recentOf, toolNames, lastPass } = deps;
   return defineTool({
     name: opts.statusTool,
     description: '查记忆插件的状态：这个 Bot 挂了哪些记忆工具，memv2 和 Javis 连不连得上、令牌能不能用，令牌文件在不在，'
@@ -612,7 +639,7 @@ function statusTool(who, deps) {
       const { slug, bot } = who;
       const names = toolNames();
       const lines = [`记忆插件 ${name} ${VERSION}；Bot「${bot.name}」（${slug}）。`,
-        names.length ? `挂上的记忆工具（${names.length} 个）：${names.join('、')}。` : '这个 Bot 没挂任何记忆工具（配置里没写 memory、memv2 或 javis）。'];
+        names.length ? `挂上的记忆工具（${names.length} 个）：${names.join('、')}。` : '这个 Bot 没挂任何记忆工具（配置里没写 local、memory、memv2 或 javis，backend 又是 none）。'];
       const stores = STORES.filter((s) => bot[s]);
       const answers = await Promise.all(stores.map((s) => opts.call(opts.servers[s], { ...sharedEnv(), ...bot[s] }, null, {},
         { method: 'javmem/status', signal: exec?.signal, timeoutMs: 20000, label: `bot="${bot.name}" store=${s}` })
@@ -624,9 +651,15 @@ function statusTool(who, deps) {
         }
         for (const st of r.stores) {
           const extra = [st.detail && String(st.detail).replace(/[。.]$/, ''), st.hide_list && HIDE_TEXT[st.hide_list]].filter(Boolean).join('；');
-          lines.push(`${STORE_LABEL[st.store] || st.store}（${st.url}）：${STATE_TEXT[st.state] || st.state}${extra ? `。${extra}` : ''}。`);
+          const state = st.store === 'local' && st.state === 'ok' ? '可以用' : (STATE_TEXT[st.state] || st.state);
+          lines.push(`${STORE_LABEL[st.store] || st.store}（${st.url}）：${state}${extra ? `。${extra}` : ''}。`);
         }
         if (r.labels && LABELS_TEXT[r.labels]) lines.push(`${LABELS_TEXT[r.labels]}。`);
+        if (s === 'local') {
+          const at = lastPass?.(slug);
+          lines.push(at ? `本地记忆库最近一次补录新对话：${new Date(at).toISOString().slice(0, 16).replace('T', ' ')}（UTC）。`
+            : '本地记忆库还没补录过对话（要等 DSH 的会话查询服务就绪；第一次查记忆时会补）。');
+        }
       }
       const checks = [...fileChecks(sharedEnv(), 'env'), ...stores.flatMap((s) => fileChecks(bot[s], `bots.${slug}.${s}`))];
       if (checks.length) lines.push(`文件：${checks.map((c) => `${c.key} ${c.there ? '在' : `不在（${c.file}）`}`).join('；')}。`);
@@ -658,8 +691,14 @@ export function apply(ctx, rowConfig = {}) {
   if (pool && typeof ctx.effect === 'function') ctx.effect(() => () => pool.close(), `${name}: server processes`);
   const now = rowConfig.now || Date.now;
   let registry = null; // Tobs's Bot registry, once the botharness service is there
+  let botharnessRoot = null; // <DSH home>/botharness, from the same service
+  let sessionQuery = null; // DSH's session query service, for the local store's indexer
+  // Where the local stores live: localDir in the config, else <DSH home>/javmem/local.
+  const defaultLocalDir = () => opts.localDir
+    || (botharnessRoot ? join(dirname(botharnessRoot), 'javmem', 'local') : join(homedir(), '.dsh', 'javmem', 'local'));
+  const resolve = (c) => resolveBots(c, registry, { localDir: defaultLocalDir() });
   const allProblems = (c) => {
-    const r = resolveBots(c, registry);
+    const r = resolve(c);
     return [...c.problems, ...r.problems, ...fileProblems({ env: c.env, bots: r.bots })];
   };
   // Each warning once per config load, so the registry arriving later only adds what it newly shows (names).
@@ -682,6 +721,30 @@ export function apply(ctx, rowConfig = {}) {
   let configMtime = mtime(opts.configFile);
   let checkedAt = now();
   let catalog = readCatalog(opts.catalogFile);
+  // The local store's indexer: each listed Bot's own past sessions, read through DSH's session query service.
+  const indexer = createIndexer({
+    sessionQuery: () => sessionQuery,
+    registry: () => registry,
+    dbFor: (slug) => resolve(current()).bots[slug]?.local?.JAVMEM_LOCAL_DB,
+    log,
+    now,
+    maxAgeMs: opts.indexMaxAgeMs,
+  });
+  const prepare = (store, slug) => (store === 'local' ? indexer.fresh(slug) : null);
+  // Every listed Bot on the local store, one after another: once both services are there, then every indexEveryMs,
+  // so a Bot's first question does not wait for its whole history.
+  let indexing = null;
+  const indexAll = () => {
+    if (indexing || !registry || !sessionQuery) return indexing;
+    const c = current();
+    if (c.mode !== 'on') return null;
+    const slugs = Object.entries(resolve(c).bots).filter(([, b]) => b.local).map(([s]) => s);
+    indexing = (async () => { for (const s of slugs) await indexer.refresh(s); })().finally(() => { indexing = null; });
+    return indexing;
+  };
+  const every = setInterval(() => { indexAll(); }, opts.indexEveryMs);
+  every.unref?.();
+  if (typeof ctx.effect === 'function') ctx.effect(() => () => { clearInterval(every); indexer.close(); }, `${name}: local index`);
   log(`started v=${VERSION} mode=${config.mode} bots=${Object.keys(config.bots).length} from=${config.from} `
     + `tools=${STORES.map((s) => `${s}:${catalog[s].length}`).join(',')}`);
   check(config, true);
@@ -719,7 +782,7 @@ export function apply(ctx, rowConfig = {}) {
       const c = current();
       if (c.mode !== 'on') return;
       const slug = info?.botSlug;
-      const bot = resolveBots(c, registry).bots[slug];
+      const bot = resolve(c).bots[slug];
       if (!bot) return;
       const who = { slug, bot, role: info.rootRole || 'unknown' };
       const sharedEnv = () => current().env;
@@ -738,7 +801,7 @@ export function apply(ctx, rowConfig = {}) {
         for (const t of catalog[store]) {
           let def;
           try {
-            def = toolFor(store, t, who, { opts, sharedEnv, log, record });
+            def = toolFor(store, t, who, { opts, sharedEnv, log, record, prepare });
           } catch (e) {
             log(`register failed bot="${bot.name}" tool=${opts.prefix[store]}${t.name} ${String(e?.message || e).slice(0, 120)}`);
             continue;
@@ -749,7 +812,8 @@ export function apply(ctx, rowConfig = {}) {
       let count = names.length;
       if (opts.statusTool) {
         const problems = (s) => allProblems(current()).filter((p) => p.bot === s || p.bot === bot.key).map((p) => p.text);
-        if (register(statusTool(who, { opts, sharedEnv, problems, recentOf: (s) => recent.get(s) || [], toolNames: () => names }))) count += 1;
+        if (register(statusTool(who, { opts, sharedEnv, problems, recentOf: (s) => recent.get(s) || [], toolNames: () => names,
+          lastPass: (s) => indexer.lastPass(s) }))) count += 1;
       }
       log(`tools bot="${bot.name}" role=${who.role} count=${count}`);
     } catch (e) {
@@ -759,8 +823,15 @@ export function apply(ctx, rowConfig = {}) {
 
   ctx.inject(['botharness'], (scope) => {
     registry = scope.botharness?.registry ?? null;
+    botharnessRoot = typeof scope.botharness?.rootDir === 'string' ? scope.botharness.rootDir : null;
     check(current());
     scope.effect(() => scope.botharness.contributeBotAgentSetup(setup), `${name}: per-Bot memory tools`);
+    indexAll();
+  });
+  ctx.inject(['sessionQuery'], (scope) => {
+    sessionQuery = scope.sessionQuery ?? null;
+    scope.effect?.(() => () => { sessionQuery = null; }, `${name}: session query`);
+    indexAll();
   });
 }
 

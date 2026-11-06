@@ -6,41 +6,61 @@
 [![compat](https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin/actions/workflows/compat.yml/badge.svg)](https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin/actions/workflows/compat.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Gives every Tobs Bot in DeepSeek Harness a memory of its own: separated per Bot, read-only, with two memory stores checked against each other.**
+**Memory from the moment it is installed: every Tobs Bot in DeepSeek Harness remembers what you and it talked about, each Bot its own, unseen by the others. With memv2 and Javis, it can answer from two memory stores checked against each other instead.**
 
-Add a Bot to the config and it has memory tools from its next session on, without a private MCP server, a card or an approval per Bot. Each Bot queries with its own token and profile and sees only its own share. The memory comes from javmem: memv2 (fact memory) plus Javis (a Graphiti memory graph).
+List a Bot in the config and it has memory tools from its next session on: no service to set up, no token, no private MCP server, card or approval per Bot. The plugin builds a local full-text index of that Bot's own past sessions, read-only (zero-setup mode), and Chinese words are found inside sentences. For stronger memory a Bot can move to javmem, memv2 (fact memory) plus Javis (a Graphiti memory graph), with the same tool names.
 
 ## Who it is for, and who it is not for
 
 For:
 
-- people who run several Bots in Tobs and want each Bot to query its own memory, unseen by the others;
-- people who already run memv2 and Javis: one plugin instead of one private MCP card per Bot;
-- people who want memory that nothing scrambles: the plugin is read-only, never writes memory and never competes with the import pipeline.
+- people who run several Bots in Tobs and want each to remember what you talked about, each its own;
+- people who do not want to set up a service: zero-setup mode works once installed, and its data stays on the machine;
+- people who already run memv2 and Javis: one plugin instead of one private MCP card per Bot, with both stores checked against each other;
+- people who want memory that nothing scrambles: the plugin is read-only, never writes to memv2 or Javis and never competes with the import pipeline.
 
 Not for:
 
 - DSH users without Tobs: the plugin only gives tools to Tobs Bots. For memory in ordinary DSH sessions, look at plugins such as Hindsight, DSH-Mem0 or MemOS.
-- people without memv2 and Javis who do not plan to set them up: the two stores are not publicly released at the moment (see Prerequisites).
-- people who want the plugin to record new conversations: it is read-only, and memory is written through memv2's and Javis's own imports.
+- people who want semantic search or facts extracted automatically: zero-setup mode searches the original words; for those you need memv2 and Javis (not publicly released at the moment, see Prerequisites).
 
 The same tools work in Claude Code and other MCP clients through [javmem-mcp](https://github.com/xuxiaoxiang0721-tech/javmem-mcp).
 
 ## Quick start
 
-1. **Prepare**: DeepSeek Harness 0.2.1-rc.3 or later, below 1.0, with Tobs; memv2 and Javis running, and for every Bot that gets memory its own memv2 read-only token file and Javis profile (formats in the javmem-mcp README).
+1. **Prepare**: DeepSeek Harness 0.2.1-rc.3 or later, below 1.0, with Tobs, and Node 22.5 or later (the Node DSH ships will do). Zero-setup mode needs nothing else.
 2. **Install**, any of three ways:
    - the npm package (once published): on the DSH web Plugins page by the package name `javmem-dsh-plugin`, or `dsh plugin --profile web add javmem-dsh-plugin`;
    - the Release tarball: `dsh plugin --profile web add https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin/releases/latest/download/javmem-dsh-plugin.tgz`;
    - git: `dsh plugin --profile web add git+https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin.git`. Where GitHub's git service cannot be reached this one fails first; use one of the other two.
 
    Once installed the plugin is off and gives no Bot any tool.
-3. **Turn it on**: in your profile's `cordis.patch.yml`, override the row with id `javmem` with `mode: 'on'` and the Bots that get memory (see Configuration). Once DSH reads the change, those Bots' new sessions have the memory tools.
-4. **Check**: ask a Bot to call `memory_status` once. It says whether both stores answer, whether the tokens work and whether the config has mistakes.
+3. **Turn it on**: in your profile's `cordis.patch.yml`, override the row with id `javmem` with `mode: 'on'` and the Bots that get memory:
+
+   ```yaml
+   - id: javmem
+     config:
+       mode: 'on'
+       bots:
+         Your Bot's name: {}
+   ```
+
+   Once DSH reads the change, that Bot's new sessions have the memory tools, and the plugin indexes its past sessions in the background.
+4. **Check**: ask the Bot to call `memory_status` once. It says how many sessions and messages its memory holds and whether the config has mistakes.
+
+## Zero-setup mode (the local store)
+
+- **What it keeps**: three kinds of text from the Bot's own front-desk sessions only: your direct messages to it (Tobs's `[Human DM]`), what you type in the DSH web page, and what it sends back with `bot_send_message`. Injected context, tool results and the memory tools' own answers are left out, so memory is never stored twice.
+- **Where it reads**: DSH's own session query service (`ctx.sessionQuery`), read-only; the session files themselves are never touched.
+- **Where it keeps it**: one file per Bot, `<DSH home>/javmem/local/<Bot id>.sqlite` (`localDir` changes the folder). A Bot's tools open only its own file.
+- **How often**: the plugin indexes in the background after it starts; before a memory call, anything newer than a minute is added first; and every 10 minutes in the background.
+- **How it searches**: SQLite full-text search. Chinese is indexed as pairs of neighbouring characters, so 「游泳课」 (swimming lessons) is found inside 「小雨的游泳课改到周三了」; other text by words.
+- **Measured** (on the author's machine, 10 Bots, 68 sessions): 394 messages taken in, indexed in memory in 34 ms; one search in each of the 10 stores took 1 ms in all.
+- The tools have the same names as the combined set (`memory_recall`, `memory_search`, `memory_search_raw`, `memory_person`, `memory_read`), so a Bot's rules stay the same when it moves to memv2 and Javis.
 
 ## Try it first: demo data
 
-See it work without memv2 and Javis: set `MEMV2_URL` and `JAVIS_URL` to `demo` in the config's `env`, and the Bot answers from made-up data that ships with the package, with no token.
+See what memv2 and Javis give before setting either up: set `MEMV2_URL` and `JAVIS_URL` to `demo` in the config's `env`, and the Bot answers from made-up data that ships with the package, with no token.
 
 ```yaml
 - id: javmem
@@ -57,7 +77,17 @@ Then ask the Bot 「小雨的游泳课学费交了多少？」 (how much were th
 
 ## The tools a Bot gets
 
-Each Bot gets one of two sets: the combined set (recommended), or the tools of the two stores apart.
+Each Bot uses one kind of memory: the local store (the default: nothing, or `local`, in the config), the combined set over both stores (`memory`), or the two stores apart (`memv2`, `javis`). The local store and the combined set share their tool names and search different things.
+
+The local store (zero-setup mode):
+
+| Tool | What it does |
+|---|---|
+| `memory_recall` | the lines of past conversations most related to this turn |
+| `memory_search` | keyword search over past conversations, with a date range; with `entity`, what was said about that person, by time |
+| `memory_search_raw` | the exact words |
+| `memory_person` | what was said about one person, by time |
+| `memory_read` | the lines around a message id, or a whole session page by page |
 
 The combined set (`memory` in the config):
 
@@ -82,7 +112,7 @@ The two stores apart (`memv2` and `javis` in the config):
 | `javis_find_sessions` | Javis | keyword search over past conversations' original lines |
 | `javis_get_conversation` | Javis | a whole conversation by its session id |
 
-Every listed Bot also gets `memory_status`: which memory tools the Bot has, whether memv2 and Javis answer and take its tokens, whether its token files are there, whether the config has mistakes, and how long its last calls took. It asks the bundled servers for their state (their `javmem/status` request, which reads no memory) and shows no token and no memory text. `statusTool: false` in the config leaves it out.
+Every listed Bot also gets `memory_status`: which memory tools the Bot has; how many sessions and messages its local store holds and when it last took in new ones; whether memv2 and Javis answer and take its tokens, and whether its token files are there; whether the config has mistakes; and how long its last calls took. It asks the bundled servers for their state (their `javmem/status` request, which reads no memory) and shows no token and no memory text. `statusTool: false` in the config leaves it out.
 
 Tool names, descriptions and arguments come from the bundled MCP servers (`mcp/`, copied from [javmem-mcp](https://github.com/xuxiaoxiang0721-tech/javmem-mcp)); the descriptions are in Chinese and kept short for small models. For cross-check marks on the combined tools, set `MEMORY_LABELS_FILE` in `env` (format in the javmem-mcp README).
 
@@ -96,7 +126,7 @@ With the tools in place, a Bot still needs to know how to use them. Two notes sh
 ## How it works
 
 - The plugin uses Tobs's per-Bot hook (botharness `contributeBotAgentSetup`) to give tools to every listed Bot's front desk and to the Assignments it sends out.
-- Each store of each Bot has one long-lived MCP server process, started with that Bot's own settings: memv2 with its read-only client token file, Javis with its profile. So each Bot reaches exactly what its token and profile allow, and two Bots never share a process.
+- Each store of each Bot has one long-lived MCP server process, started with that Bot's own settings: the local store with its own file, memv2 with its read-only client token file, Javis with its profile. So each Bot reaches exactly what its file, token and profile allow, and two Bots never share a process.
 - A process exits after 5 idle minutes, and at most 8 run at once (the least recently used idle one makes room; when all are busy, the call gets a one-off process). A process that dies mid-call is replaced and the call tried once more; one that hangs past the timeout is replaced. Measured (0号机, Windows, Node 24, `node scripts/bench-calls.mjs`): over 20 consecutive calls, one process per call took 54.6 ms per call on average, a long-lived process 4.2 ms (56 ms for the first, then a median of 1.4 ms). That is the plugin's own cost, without the stores' query time.
 - A failure while registering tools is only logged; it never keeps a Bot's session from starting.
 - Measured numbers (right answers found, how often the two stores agree) are in [javmem-mcp's "Measured numbers"](https://github.com/xuxiaoxiang0721-tech/javmem-mcp/blob/main/README.en.md#measured-numbers).
@@ -104,13 +134,14 @@ With the tools in place, a Bot still needs to know how to use them. Two notes sh
 
 ## Prerequisites
 
-The plugin stores no memory itself; it only queries the two memory stores for the Bots. So it needs:
+- DeepSeek Harness 0.2.1-rc.3 or later, below 1.0, with Tobs (`@botharness/core`). Zero-setup mode needs only this, and Node 22.5 or later (the Node DSH ships will do).
 
-- DeepSeek Harness 0.2.1-rc.3 or later, below 1.0, with Tobs (`@botharness/core`).
+For memv2 and Javis (Bots given `memory`, `memv2` or `javis`), the plugin only queries those two stores for the Bots, so it also needs:
+
 - **memv2 running**, at an address the plugin knows (default `http://127.0.0.1:8766`, port 8766 on this machine). Every Bot needs a read-only token, its library card so to speak: memv2's administrator issues it and decides at that moment which partitions it may read. The token lives in a file; the config only holds that file's path.
 - **Javis running**, at an address the plugin knows (default `http://127.0.0.1:8765/mcp`). Every Bot has a profile naming the accounts it may see and the file that holds Javis's token (format in the javmem-mcp README).
 
-**Note**: the SQLite under memv2 and the Graphiti and Neo4j under Javis are public and can be installed; memv2 and Javis themselves are not publicly released at the moment, and the plugin talks to their own query interfaces. So SQLite, Graphiti and Neo4j alone are not enough: the plugin finds nothing without memv2 and Javis.
+**Note**: the SQLite under memv2 and the Graphiti and Neo4j under Javis are public and can be installed; memv2 and Javis themselves are not publicly released at the moment, and the plugin talks to their own query interfaces. So SQLite, Graphiti and Neo4j alone do not make these two backends; without them, use zero-setup mode.
 
 ## Configuration
 
@@ -139,12 +170,15 @@ Override the row by its id in your profile's `cordis.patch.yml`:
 | `mode` | `'on'` or `'off'` (quoted, so YAML does not read a yes/no) |
 | `bots` | Bots by id or by name. The id is the Bot's folder name under `botharness/bots/` in the DSH home (`bot-` plus 32 hex digits); for a name the plugin finds the id in Tobs (next section). `memory` = the five combined tools (with both stores' settings inside); `memv2`, `javis` = the tools of each store apart, and a store left out gives no tools. Give a Bot either `memory` or `memv2`/`javis`: a Bot given both gets only the `memory` tools, with a warning. `off: true` parks a Bot |
 | `template` | optional: settings for every Bot whose entry names no store; `{name}` and `{slug}` become the Bot's name and id (next section) |
+| `backend` | optional: what a Bot gets that names no store and has no template. `'local'` (default) = the local store; `'none'` = no tools (the way before 0.3.0) |
+| `localDir` | optional: the folder of the local stores, default `<DSH home>/javmem/local` |
 | `env` | settings sent with every call, such as `MEMORY_OWNER` (how the tool text names the memory's owner), `MEMV2_URL`, `JAVIS_URL`, `MEMORY_LABELS_FILE` |
 | `configFile` | optional: a JSON file with the fields above instead, re-read when it changes, no restart |
 | `logFile` | optional: the log file's path |
 | `prefix` | optional: tool name prefixes, default `memory_`, `memv2_`, `javis_` |
 | `servers` | optional: paths to your own `memory-mcp.js`, `memv2-mcp.js`, `javis-mcp.js` |
 | `statusTool` | optional: the status tool's name, default `memory_status`; `false` = none |
+| `indexMaxAgeMs`, `indexEveryMs` | optional: how old the local store's last pass may be before a call takes in new messages first, default 60000 (a minute); how often it does so in the background, default 600000 (10 minutes) |
 | `keepAlive`, `idleMs`, `maxProcesses` | optional: the long-lived processes. `keepAlive: false` = a new process for every call (the way before 0.3.0); `idleMs` = idle time before a process exits, default 300000 (5 minutes); `maxProcesses` = how many may run at once, default 8 |
 
 Only settings starting with `MEMV2_`, `JAVIS_` or `MEMORY_` are used; the config holds paths and settings, never tokens.

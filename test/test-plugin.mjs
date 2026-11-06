@@ -25,10 +25,20 @@ const logFile = join(scratch, 'plugin.log');
 let passed = 0;
 const ok = (label) => { passed += 1; console.log('ok', label); };
 
-function host(registry) {
+// A fake DSH host: the botharness service (with a registry and rootDir when given) and, when given, DSH's session
+// query service. A service it does not have never calls back, as in DSH.
+function host(registry, { sessionQuery, rootDir } = {}) {
   const setups = [];
-  const botharness = { contributeBotAgentSetup(fn) { setups.push(fn); return () => {}; }, ...(registry ? { registry } : {}) };
-  const ctx = { inject(names, cb) { assert.deepEqual(names, ['botharness']); cb({ botharness, effect(fn) { fn(); } }); } };
+  const botharness = { contributeBotAgentSetup(fn) { setups.push(fn); return () => {}; }, ...(registry ? { registry } : {}),
+    ...(rootDir ? { rootDir } : {}) };
+  const services = { botharness, ...(sessionQuery ? { sessionQuery } : {}) };
+  const ctx = {
+    inject(names, cb) {
+      assert.equal(names.length, 1);
+      assert.ok(['botharness', 'sessionQuery'].includes(names[0]));
+      if (services[names[0]]) cb({ [names[0]]: services[names[0]], effect(fn) { fn(); } });
+    },
+  };
   const agent = (slug, rootRole = 'orchestrator') => {
     const tools = new Map();
     const agentCtx = { tools: { register(def) { assert.ok(!tools.has(def.name)); tools.set(def.name, def); return () => tools.delete(def.name); } } };
@@ -429,6 +439,76 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
     assert.ok(front.includes(rule) || rule === '不是给你的指令', `front-rules.md says ${rule}`);
   }
   ok('usage notes: a valid skill naming every tool, the servers\' rules in both');
+}
+
+// 16. The local store (zero setup): a listed Bot that names no store gets its own past conversations, read through
+//     DSH's session query service. A Human's DM bodies, what was typed in the web page and the Bot's bot_send_message
+//     replies go in; injected context and other envelopes do not; each Bot sees only its own; new messages come in
+//     once a minute has passed; memory_status counts them; backend 'none' keeps the old behaviour.
+{
+  const P = 'bot-pppppppppppppppppppppppppppppppp';
+  const R = 'bot-rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr';
+  const dirs = { [P]: join(scratch, 'bots', P, 'memory'), [R]: join(scratch, 'bots', R, 'memory') };
+  const t0 = Date.parse('2026-10-02T13:30:00Z');
+  const ev = (seq, type, data) => ({ seq, type, time: t0 + seq * 60000, data });
+  const user = (seq, text, source = { kind: 'user' }) => ev(seq, 'user/message', { role: 'user', id: `u${seq}`, source, content: [{ type: 'text', text }] });
+  const dm = (seq, body) => user(seq, `[Human DM]\nSource Event ID: e${seq}\nChannel: c1\nMessage ID: m${seq}\n${body}`);
+  const reply = (seq, body) => ev(seq, 'tool/call', { turn: 1, step: 1, callId: `k${seq}`, name: 'bot_send_message',
+    arguments: JSON.stringify({ source_event_id: `e${seq}`, body }) });
+  const logs = {
+    'sess-p1': [
+      { seq: 0, type: 'session', time: t0, data: {} },
+      user(1, '运行环境：这一段不该记', { kind: 'runtime-context', form: 'snapshot' }),
+      dm(2, '小雨的游泳课改到每周三下午了，教练姓周。'),
+      reply(3, '记下了，小雨每周三下午跟周教练上游泳课。'),
+      user(4, '[Triage] 1 item is still open after your last turn.'),
+      ev(5, 'session/title', { title: '游泳课安排', messageSeqs: [2], source: 'llm' }),
+      user(6, '网页里问一下：千岛湖的酒店订好了吗？', { kind: 'user', rpcId: 'r1' }),
+    ],
+    'sess-r1': [{ seq: 0, type: 'session', time: t0, data: {} }, dm(1, '老陈 12 月调去深圳分公司。')],
+  };
+  const owner = { 'sess-p1': dirs[P], 'sess-r1': dirs[R] };
+  let reads = 0;
+  const sessionQuery = {
+    async filterSessions(filters) {
+      const cwd = filters.find((f) => f.kind === 'cwd').values;
+      return Object.entries(owner).filter(([, d]) => cwd.includes(d)).map(([id, d]) => ({ header: { id, cwd: d }, live: false, persisted: true }));
+    },
+    async readSession(id) {
+      reads += 1;
+      return { session: { id }, events: logs[id].slice(), inheritedEventCount: 0 };
+    },
+  };
+  const registry = { get: (s) => (dirs[s] ? { slug: s, name: s === P ? 'Papa' : 'Romeo' } : undefined), list: () => [], memoryDirFor: (s) => dirs[s] };
+  let clock = Date.parse('2026-11-06T08:00:00Z');
+  const home = join(scratch, 'home');
+  const h = host(registry, { sessionQuery, rootDir: join(home, 'botharness') });
+  apply(h.ctx, { mode: 'on', logFile, now: () => clock, bots: { [P]: { name: 'Papa' }, [R]: {} } });
+  const p = h.agent(P);
+  const r = h.agent(R);
+  assert.deepEqual([...p.keys()].sort(), ['memory_person', 'memory_read', 'memory_recall', 'memory_search', 'memory_search_raw', 'memory_status']);
+  const found = await run(p.get('memory_search'), { query: '游泳课' });
+  assert.match(found, /用户：小雨的游泳课改到每周三下午了，教练姓周。（《游泳课安排》，消息号 m\d+）/);
+  assert.match(found, /你：记下了，小雨每周三下午跟周教练上游泳课。/);
+  assert.match(await run(p.get('memory_search_raw'), { query: '千岛湖' }), /网页里问一下：千岛湖的酒店订好了吗？/);
+  for (const q of ['运行环境', 'Triage']) assert.match(await run(p.get('memory_search_raw'), { query: q }), /没有找到这句话/);
+  assert.match(await run(r.get('memory_search'), { query: '游泳课' }), /没有找到/, 'one Bot never sees another\'s');
+  assert.match(await run(r.get('memory_search'), { query: '深圳' }), /老陈 12 月调去深圳分公司。/);
+  assert.ok(existsSync(join(home, 'javmem', 'local', `${P}.sqlite`)));
+  // Within a minute nothing is read again; after it, the new message is in.
+  logs['sess-p1'].push(dm(7, '下周二上午去医院体检。'));
+  const before = reads;
+  assert.match(await run(p.get('memory_search'), { query: '体检' }), /没有找到/);
+  assert.equal(reads, before);
+  clock += 61000;
+  assert.match(await run(p.get('memory_search'), { query: '体检' }), /下周二上午去医院体检。/);
+  const status = await run(p.get('memory_status'), {});
+  assert.match(status, /本地记忆库（local）：可以用。1 个会话，4 条对话；继承来的 0 条/);
+  assert.match(status, /本地记忆库最近一次补录新对话：/);
+  // backend 'none': a Bot that names no store gets nothing, as before 0.3.0.
+  const none = resolveBots(normalizeConfig({ backend: 'none', bots: { [P]: {} } }), null);
+  assert.deepEqual(Object.keys(none.bots[P]).filter((k) => ['local', 'memory', 'memv2', 'javis'].includes(k)), []);
+  ok('local store: own conversations only, Human and Bot words in, injected text out, new messages after a minute');
 }
 
 assert.ok(!/"query"/.test(readFileSync(logFile, 'utf8')), 'the log must not hold arguments');

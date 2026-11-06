@@ -6,41 +6,61 @@
 [![compat](https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin/actions/workflows/compat.yml/badge.svg)](https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin/actions/workflows/compat.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**给 DeepSeek Harness 里的每个 Tobs Bot 一份只属于它的记忆：按 Bot 隔离，只读，两个记忆库对照着回答。**
+**装上就有记忆：DeepSeek Harness 里的每个 Tobs Bot 都记得自己和你聊过的话，各记各的，互相看不到。有 memv2 和 Javis 的，还能换成两个记忆库对照着回答。**
 
-在配置里加一个 Bot，它从下一个会话起就有记忆工具，不用给每个 Bot 单独接私有 MCP、填卡片、点批准。每个 Bot 用自己的令牌和配置去查，只看得到自己那一份。记忆来自 javmem，也就是 memv2（事实记忆）加 Javis（Graphiti 记忆图谱）这一套。
+在配置里列出一个 Bot，它从下一个会话起就有记忆工具：不用另搭服务，不要令牌，也不用给每个 Bot 单独接私有 MCP、填卡片、点批准。插件只读地把这个 Bot 自己的历史会话建成一个本地全文索引（零准备模式），中文按词也能搜到。想要更强的记忆，可以给 Bot 换成 javmem，也就是 memv2（事实记忆）加 Javis（Graphiti 记忆图谱）这一套，工具名不变。
 
 ## 适合谁，不适合谁
 
 适合：
 
-- 用 Tobs 养了好几个 Bot，想让每个 Bot 各查各的记忆、互相看不到的人；
-- 已经在跑 memv2 和 Javis 的人：一个插件代替每个 Bot 一张私有 MCP 卡片；
-- 在意记忆不被写乱的人：插件只读，不写记忆，也不和导入管线抢着写。
+- 用 Tobs 养了好几个 Bot，想让每个 Bot 记得和你聊过什么、而且各记各的人；
+- 不想另外搭服务的人：零准备模式装上就能用，数据只在本机；
+- 已经在跑 memv2 和 Javis 的人：一个插件代替每个 Bot 一张私有 MCP 卡片，两个库对照着回答；
+- 在意记忆不被写乱的人：插件只读，不写 memv2 和 Javis，也不和导入管线抢着写。
 
 不适合：
 
 - 不用 Tobs 的 DSH 用户：插件只给 Tobs 的 Bot 挂工具。想给普通 DSH 会话加记忆，可以看 Hindsight、DSH-Mem0、MemOS 这类插件。
-- 没有 memv2 和 Javis、也不打算自己搭的人：这两个库目前没有公开发布（见「前提」）。
-- 想让插件自己记下新对话的人：本插件只读，记忆的写入走 memv2 和 Javis 自己的导入。
+- 想要语义搜索、自动抽取事实的人：零准备模式只按词搜原话；要这些得用 memv2 和 Javis（目前没有公开发布，见「前提」）。
 
 同一套工具也能接到 Claude Code 等 MCP 客户端，用 [javmem-mcp](https://github.com/xuxiaoxiang0721-tech/javmem-mcp) 就行。
 
 ## 快速开始
 
-1. **准备**：DeepSeek Harness 0.2.1-rc.3 以上、1.0 以下（带 Tobs）；memv2 和 Javis 在跑，每个要接记忆的 Bot 有自己的 memv2 只读令牌文件和 Javis 配置文件（格式见 javmem-mcp 的说明）。
+1. **准备**：DeepSeek Harness 0.2.1-rc.3 以上、1.0 以下（带 Tobs），Node 22.5 以上（DSH 自带的 Node 就行）。零准备模式不需要别的。
 2. **安装**，三种写法任选：
    - npm 包（发布后）：DSH 网页插件页按包名 `javmem-dsh-plugin` 安装，或者运行 `dsh plugin --profile web add javmem-dsh-plugin`；
    - Release 安装包：`dsh plugin --profile web add https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin/releases/latest/download/javmem-dsh-plugin.tgz`；
    - git：`dsh plugin --profile web add git+https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin.git`。网络连不上 GitHub 的 git 服务时这一种会先失败，换前两种。
 
    装好后插件是关着的，不会给任何 Bot 挂工具。
-3. **打开**：在你的 profile 的 `cordis.patch.yml` 里按 id `javmem` 覆盖这一行，写上 `mode: 'on'` 和要接记忆的 Bot（见「配置」）。DSH 读到改动后，这些 Bot 新开的会话就有记忆工具。
-4. **看状态**：让 Bot 调一次 `memory_status`，它会说清两个库连没连上、令牌能不能用、配置有没有写错。
+3. **打开**：在你的 profile 的 `cordis.patch.yml` 里按 id `javmem` 覆盖这一行，写上 `mode: 'on'` 和要接记忆的 Bot：
+
+   ```yaml
+   - id: javmem
+     config:
+       mode: 'on'
+       bots:
+         你的 Bot 名字: {}
+   ```
+
+   DSH 读到改动后，这个 Bot 新开的会话就有记忆工具，插件在后台把它以前的会话建成索引。
+4. **看状态**：让 Bot 调一次 `memory_status`，它会说清记忆库里有几个会话、几条对话，配置有没有写错。
+
+## 零准备模式（本地库）
+
+- **记什么**：只记这个 Bot 自己的前台会话里三种话：你发给它的私信（Tobs 的 `[Human DM]`）、你在 DSH 网页里直接打的字、它用 `bot_send_message` 回你的话。系统塞进去的上下文、工具结果、记忆工具自己的回答都不记，免得记忆再记一遍。
+- **从哪读**：DSH 自带的会话查询服务（`ctx.sessionQuery`），只读，不碰会话文件本身。
+- **放在哪**：每个 Bot 一个文件，`<DSH 主目录>/javmem/local/<Bot 编号>.sqlite`，配置里 `localDir` 可以改。一个 Bot 的工具只打开它自己的文件。
+- **多久更新**：插件启动后在后台建一遍；之后查记忆前，距上次超过一分钟就把新对话补进来；另外每 10 分钟补一次。
+- **怎么搜**：SQLite 全文索引。中文按相邻两个字切开再建索引，所以「游泳课」能在「小雨的游泳课改到周三了」里找到；英文和数字按词。
+- **实测**（作者的机器，10 个 Bot、68 个会话）：取出 394 条对话，在内存里建索引 34 毫秒，10 个库各搜一次共 1 毫秒。
+- 工具和合起来的工具同名（`memory_recall`、`memory_search`、`memory_search_raw`、`memory_person`、`memory_read`），以后换成 memv2 和 Javis，Bot 的规则不用改。
 
 ## 先试试：演示数据
 
-没有 memv2 和 Javis 也能先看效果：在配置的 `env` 里把 `MEMV2_URL` 和 `JAVIS_URL` 设成 `demo`，Bot 就从包里自带的虚构数据回答，不要令牌。
+想看看换成 memv2 和 Javis 以后是什么样，不用先搭这两个库：在配置的 `env` 里把 `MEMV2_URL` 和 `JAVIS_URL` 设成 `demo`，Bot 就从包里自带的虚构数据回答，不要令牌。
 
 ```yaml
 - id: javmem
@@ -57,7 +77,17 @@
 
 ## Bot 能用的工具
 
-每个 Bot 二选一：合起来的一套（推荐），或者两个库分开的工具。
+每个 Bot 用一种记忆：本地库（默认，配置里不写或写 `local`）、两个库合起来的一套（写 `memory`），或者两个库分开的工具（写 `memv2`、`javis`）。本地库和合起来的那套工具同名，查的东西不同。
+
+本地库（零准备模式）：
+
+| 工具 | 用途 |
+|---|---|
+| `memory_recall` | 按这一轮的话，取回以前对话里最相关的几句 |
+| `memory_search` | 按关键词查以前的对话，可按时间筛；给 `entity` 就按时间列出提到这个人的话 |
+| `memory_search_raw` | 按原话逐字找 |
+| `memory_person` | 提到某个人的话，按时间排 |
+| `memory_read` | 给消息号读前后几句，或给会话号分页读整段 |
 
 合起来的工具（配置里写 `memory`）：
 
@@ -82,7 +112,7 @@
 | `javis_find_sessions` | Javis | 按关键词找以前对话的原话 |
 | `javis_get_conversation` | Javis | 按对话号读整段对话 |
 
-另外每个列出的 Bot 都有一个 `memory_status`：报这个 Bot 挂了哪些记忆工具、memv2 和 Javis 连不连得上、令牌能不能用、令牌文件在不在、配置有没有写错、最近几次调用花了多久。它向附带的服务要状态（服务的 `javmem/status` 请求，不读任何记忆），只报状态，不显示令牌和记忆内容。不想要它，就在配置里写 `statusTool: false`。
+另外每个列出的 Bot 都有一个 `memory_status`：报这个 Bot 挂了哪些记忆工具；本地库里有几个会话、几条对话、最近什么时候补录；memv2 和 Javis 连不连得上、令牌能不能用、令牌文件在不在；配置有没有写错；最近几次调用花了多久。它向附带的服务要状态（服务的 `javmem/status` 请求，不读任何记忆），只报状态，不显示令牌和记忆内容。不想要它，就在配置里写 `statusTool: false`。
 
 工具名、说明和参数来自包里附带的 MCP 服务（`mcp/` 目录，复制自 [javmem-mcp](https://github.com/xuxiaoxiang0721-tech/javmem-mcp)），说明是中文，按小模型写得很短。合起来的工具要给每条标上两个库的对照结果时，在 `env` 里设 `MEMORY_LABELS_FILE`（格式见 javmem-mcp 的说明）。
 
@@ -96,7 +126,7 @@
 ## 怎么工作
 
 - 插件用 Tobs 的按 Bot 钩子（botharness `contributeBotAgentSetup`），给每个列出的 Bot 的前台和它派出的任务挂工具。
-- 每个 Bot 的每个库有一个常驻的 MCP 服务进程，按这个 Bot 自己的设置启动：memv2 用它的只读客户端令牌文件，Javis 用它的配置文件。所以每个 Bot 能查到的范围，和它的令牌、配置允许的一样；两个 Bot 从不共用一个进程。
+- 每个 Bot 的每个库有一个常驻的 MCP 服务进程，按这个 Bot 自己的设置启动：本地库用它自己的库文件，memv2 用它的只读客户端令牌文件，Javis 用它的配置文件。所以每个 Bot 能查到的范围，和它的文件、令牌、配置允许的一样；两个 Bot 从不共用一个进程。
 - 进程空闲 5 分钟就退出，最多同时 8 个（满了先停最久没用的空闲进程；都在忙时，这次调用临时起一个，用完就走）；进程中途退出就换一个新的，把这次调用再试一次；卡住超时的进程直接换掉。实测（0号机，Windows，Node 24，`node scripts/bench-calls.mjs`）：连续 20 次调用，每次新起进程平均 54.6 毫秒一次，常驻进程平均 4.2 毫秒（第一次 56 毫秒，之后中位数 1.4 毫秒）。这是插件自己的开销，不含两个库查询本身的时间。
 - 挂工具出错只记日志，不会让 Bot 的会话开不起来。
 - 答对多少题、两个库说法一致的比例这些实测数字，见 [javmem-mcp 的「实测数字」](https://github.com/xuxiaoxiang0721-tech/javmem-mcp#实测数字)。
@@ -104,13 +134,14 @@
 
 ## 前提
 
-插件自己不存记忆，只负责替 Bot 去两个记忆库里查，所以用之前要先有这几样：
+- DeepSeek Harness 0.2.1-rc.3 以上、1.0 以下，装了 Tobs（`@botharness/core`）。零准备模式只要这个，再加 Node 22.5 以上（DSH 自带的 Node 就行）。
 
-- DeepSeek Harness 0.2.1-rc.3 以上、1.0 以下，装了 Tobs（`@botharness/core`）。
+要用 memv2 和 Javis（写 `memory`、`memv2`、`javis` 的 Bot）时，插件只替 Bot 去这两个库里查，所以还要：
+
 - **memv2 在运行**，插件要知道它的地址（默认 `http://127.0.0.1:8766`，即本机的 8766 端口）。每个 Bot 还要一个只读令牌，相当于这个 Bot 的借阅证：由 memv2 的管理员发，发的时候就定好它能查哪些分区。令牌存在一个文件里，配置里只写这个文件的路径。
 - **Javis 在运行**，插件要知道它的地址（默认 `http://127.0.0.1:8765/mcp`）。每个 Bot 一个配置文件，写明它能看哪些账号、Javis 的令牌存在哪个文件（格式见 javmem-mcp 的说明）。
 
-**注意**：memv2 底下用的 SQLite、Javis 底下用的 Graphiti 和 Neo4j 都是公开的，可以自己装；但 memv2 和 Javis 这两层目前没有公开发布，而插件调用的正是它们自己的查询接口。所以光装 SQLite、Graphiti、Neo4j 还接不上，插件装上也查不到任何东西。
+**注意**：memv2 底下用的 SQLite、Javis 底下用的 Graphiti 和 Neo4j 都是公开的，可以自己装；但 memv2 和 Javis 这两层目前没有公开发布，而插件调用的正是它们自己的查询接口。所以光装 SQLite、Graphiti、Neo4j 还接不上 memv2 和 Javis 这两种后端；没有它们，就用零准备模式。
 
 ## 配置
 
@@ -139,12 +170,15 @@
 | `mode` | `'on'` 或 `'off'`（加引号，免得被当成是/否） |
 | `bots` | 按 Bot 编号或名字列出。编号就是 DSH 主目录下 `botharness/bots/` 里的文件夹名（`bot-` 加 32 位十六进制）；写名字时插件到 Tobs 里找编号（见下一节）。`memory` = 合起来的五个工具（两边的设置都写在里面）；`memv2`、`javis` = 分开的工具，没写的那一组就没有。同一个 Bot 只写 `memory`，或只写 `memv2`/`javis`：两样都写了，只挂 `memory` 那一组，并记一条警告。`off: true` 可以先停用某个 Bot |
 | `template` | 可选：给没写任何一组工具的 Bot 用的设置，`{name}`、`{slug}` 换成 Bot 的名字和编号（见下一节） |
+| `backend` | 可选：没写任何一组工具、也没有模板的 Bot 用什么。`'local'`（默认）= 本地库；`'none'` = 不挂工具（0.3.0 以前的做法） |
+| `localDir` | 可选：本地库放在哪个文件夹，默认 `<DSH 主目录>/javmem/local` |
 | `env` | 每次调用都带上的设置，例如 `MEMORY_OWNER`（工具说明里怎么称呼记忆的主人）、`MEMV2_URL`、`JAVIS_URL`、`MEMORY_LABELS_FILE` |
 | `configFile` | 可选：改用一个 JSON 文件放上面这些字段，改了自动重读，不用重启 |
 | `logFile` | 可选：日志文件路径 |
 | `prefix` | 可选：工具名前缀，默认 `memory_`、`memv2_`、`javis_` |
 | `servers` | 可选：换成你自己的 `memory-mcp.js`、`memv2-mcp.js`、`javis-mcp.js` 路径 |
 | `statusTool` | 可选：状态工具的名字，默认 `memory_status`；`false` = 不挂 |
+| `indexMaxAgeMs`、`indexEveryMs` | 可选：本地库查之前距上次补录超过多久就先补，默认 60000（1 分钟）；后台每隔多久补一次，默认 600000（10 分钟） |
 | `keepAlive`、`idleMs`、`maxProcesses` | 可选：常驻进程。`keepAlive: false` = 每次调用新起一个进程（0.3.0 以前的做法）；`idleMs` 空闲多久退出，默认 300000（5 分钟）；`maxProcesses` 最多同时几个，默认 8 |
 
 只接受 `MEMV2_`、`JAVIS_`、`MEMORY_` 开头的设置；配置里只写路径和设置，不写令牌。
