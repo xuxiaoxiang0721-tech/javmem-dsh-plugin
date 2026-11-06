@@ -92,6 +92,7 @@ Tool names, descriptions and arguments come from the bundled MCP servers (`mcp/`
 - Each store of each Bot has one long-lived MCP server process, started with that Bot's own settings: memv2 with its read-only client token file, Javis with its profile. So each Bot reaches exactly what its token and profile allow, and two Bots never share a process.
 - A process exits after 5 idle minutes, and at most 8 run at once (the least recently used idle one makes room; when all are busy, the call gets a one-off process). A process that dies mid-call is replaced and the call tried once more; one that hangs past the timeout is replaced. Measured (0号机, Windows, Node 24, `node scripts/bench-calls.mjs`): over 20 consecutive calls, one process per call took 54.6 ms per call on average, a long-lived process 4.2 ms (56 ms for the first, then a median of 1.4 ms). That is the plugin's own cost, without the stores' query time.
 - A failure while registering tools is only logged; it never keeps a Bot's session from starting.
+- Measured numbers (right answers found, how often the two stores agree) are in [javmem-mcp's "Measured numbers"](https://github.com/xuxiaoxiang0721-tech/javmem-mcp/blob/main/README.en.md#measured-numbers).
 - The log (optional) has one line per call: Bot, tool, milliseconds and answer size, and a line when a process starts or stops; never the query or memory text.
 
 ## Prerequisites
