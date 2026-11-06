@@ -7,6 +7,7 @@
 - 兼容范围放宽到 DSH 1.0 以下（`engines.dsh` 和 `@deepseek-ai/dsh-tools` 的 peer 范围），每天用 DSH 的 latest 和 next 各跑一遍测试。
 - 第一次发 npm（包名 `javmem-dsh-plugin`），GitHub Release 附安装包 `javmem-dsh-plugin.tgz`；附带 javmem-mcp 0.3.0。
 - 新工具 `memory_status`：这个 Bot 挂了哪些记忆工具、每个库连不连得上、令牌能不能用、文件在不在、配置提醒、最近几次调用的耗时；不显示令牌和记忆内容（`statusTool: false` 可关）。
+- README：开头一句话说清是什么，写明适合谁、不适合谁，三种装法（npm、Release 安装包、git）；英文版 `README.en.md` 和中文版内容对等；npm、CI、许可证徽章。
 
 English:
 
@@ -15,6 +16,7 @@ English:
 - DSH range widened to below 1.0 (`engines.dsh` and the `@deepseek-ai/dsh-tools` peer range); a daily workflow tests against DSH's latest and next.
 - First npm release (`javmem-dsh-plugin`), a GitHub Release asset `javmem-dsh-plugin.tgz`; bundles javmem-mcp 0.3.0.
 - New tool `memory_status`: the Bot's memory tools, whether each store answers and takes its token, its files, its config warnings and its last calls' times; no token and no memory text (`statusTool: false` turns it off).
+- README: a one-line pitch, who it is for and not for, three ways to install (npm, Release tarball, git); `README.en.md` in English with the same content as the Chinese one; npm, CI and licence badges.
 
 ## 0.2.2
 
