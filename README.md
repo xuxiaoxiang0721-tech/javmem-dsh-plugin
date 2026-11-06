@@ -29,7 +29,7 @@ DeepSeek Harness（Tobs）插件：给你列出的 Bot 挂上只读的记忆工�
 | `javis_find_sessions` | Javis | 按关键词找以前对话的原话 |
 | `javis_get_conversation` | Javis | 按对话号读整段对话 |
 
-工具名、说明和参数来自包里附带的 MCP 服务（`mcp/` 目录，复制自 [two-memory-mcp](../two-memory-mcp)），说明是中文，按小模型写得很短。合起来的工具要给每条标上两个库的对照结果时，在 `env` 里设 `MEMORY_LABELS_FILE`（格式见 two-memory-mcp 的说明）。
+工具名、说明和参数来自包里附带的 MCP 服务（`mcp/` 目录，复制自 [javmem-mcp](https://github.com/xuxiaoxiang0721-tech/javmem-mcp)），说明是中文，按小模型写得很短。合起来的工具要给每条标上两个库的对照结果时，在 `env` 里设 `MEMORY_LABELS_FILE`（格式见 javmem-mcp 的说明）。
 
 ## 怎么工作
 
@@ -42,7 +42,7 @@ DeepSeek Harness（Tobs）插件：给你列出的 Bot 挂上只读的记忆工�
 
 - DeepSeek Harness 0.2.1 以上，装了 Tobs（`@botharness/core`）。
 - memv2 的 HTTP 读接口，以及每个 Bot 一个只读客户端令牌（写在文件里）。
-- Javis 的 MCP 端点，以及存它令牌的文件；每个 Bot 一个配置文件，写明能看哪些账号（见 two-memory-mcp 的说明）。
+- Javis 的 MCP 端点，以及存它令牌的文件；每个 Bot 一个配置文件，写明能看哪些账号（见 javmem-mcp 的说明）。
 
 ## 安装
 
@@ -107,4 +107,4 @@ node test/test-plugin.mjs
 
 ## English summary
 
-A DeepSeek Harness (Tobs) plugin that gives the Bots you list read-only memory tools from memv2 (fact memory) and Javis (Graphiti memory graph), with no per-Bot private MCP card. It hooks Tobs's per-Bot agent setup (`contributeBotAgentSetup`, front desk and Assignments) and registers `memv2_*` and `javis_*` tools whose text comes from the bundled MCP servers (`mcp/`, copied from two-memory-mcp). Each call starts the server with that Bot's own token file or profile plus the shared `env`, so each Bot sees what its credentials allow. It ships with `mode: 'off'`; override the `two-memory` row in your profile's `cordis.patch.yml` with `mode`, `env` and `bots` (slugs are the folder names under `<DSH home>/botharness/bots`). Setup errors are logged and never block a session. Tests: `node test/test-plugin.mjs`. License: to be decided.
+A DeepSeek Harness (Tobs) plugin that gives the Bots you list read-only memory tools from memv2 (fact memory) and Javis (Graphiti memory graph), with no per-Bot private MCP card. It hooks Tobs's per-Bot agent setup (`contributeBotAgentSetup`, front desk and Assignments) and registers `memv2_*` and `javis_*` tools whose text comes from the bundled MCP servers (`mcp/`, copied from javmem-mcp). Each call starts the server with that Bot's own token file or profile plus the shared `env`, so each Bot sees what its credentials allow. It ships with `mode: 'off'`; override the `two-memory` row in your profile's `cordis.patch.yml` with `mode`, `env` and `bots` (slugs are the folder names under `<DSH home>/botharness/bots`). Setup errors are logged and never block a session. Tests: `node test/test-plugin.mjs`. License: to be decided.
