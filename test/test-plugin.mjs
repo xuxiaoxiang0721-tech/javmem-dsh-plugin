@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { apply, callServer, DEFAULTS, normalizeConfig, parameters, VERSION } from '../index.mjs';
+import { apply, callServer, DEFAULTS, fileProblems, normalizeConfig, parameters, VERSION } from '../index.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'javmem-dsh-plugin-'));
 const A = 'bot-0123456789abcdef0123456789abcdef';
@@ -25,9 +25,10 @@ const logFile = join(scratch, 'plugin.log');
 let passed = 0;
 const ok = (label) => { passed += 1; console.log('ok', label); };
 
-function host() {
+function host(registry) {
   const setups = [];
-  const ctx = { inject(names, cb) { assert.deepEqual(names, ['botharness']); cb({ botharness: { contributeBotAgentSetup(fn) { setups.push(fn); return () => {}; } }, effect(fn) { fn(); } }); } };
+  const botharness = { contributeBotAgentSetup(fn) { setups.push(fn); return () => {}; }, ...(registry ? { registry } : {}) };
+  const ctx = { inject(names, cb) { assert.deepEqual(names, ['botharness']); cb({ botharness, effect(fn) { fn(); } }); } };
   const agent = (slug, rootRole = 'orchestrator') => {
     const tools = new Map();
     const agentCtx = { tools: { register(def) { assert.ok(!tools.has(def.name)); tools.set(def.name, def); return () => tools.delete(def.name); } } };
@@ -129,8 +130,8 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   ok('combined server: five memory_* tools, both stores down named');
 }
 
-// 8. The code reports package.json's version. A Bot given both memory and memv2/javis still gets both sets (nothing
-//    changes for it), but is named in a warning in the log file and on stderr.
+// 8. The code reports package.json's version. A Bot given both memory and memv2/javis gets the memory tools only, and
+//    is named in a warning in the log file and on stderr.
 {
   assert.equal(VERSION, JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
   const D = 'bot-dddddddddddddddddddddddddddddddd';
@@ -147,11 +148,11 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   } finally {
     console.warn = original;
   }
-  assert.equal(tools.size, 9);
+  assert.deepEqual([...tools.keys()].sort(), ['memory_person', 'memory_read', 'memory_recall', 'memory_search', 'memory_search_raw']);
   assert.equal(warned.length, 1);
-  assert.match(warned[0], /^javmem-dsh-plugin: warning bot="Delta" has both memory and memv2\/javis set/);
+  assert.match(warned[0], /^javmem-dsh-plugin: warning bot="Delta" has both memory and memv2\/javis set; only the memory tools are registered$/);
   assert.match(readFileSync(logFile, 'utf8'), /warning bot="Delta" has both memory and memv2\/javis set/);
-  ok('one version; a Bot with both tool sets is warned about');
+  ok('one version; a Bot with both tool sets gets the memory tools only, with a warning');
 }
 
 // 9. The start line in the log and the MCP handshake (clientInfo) carry package.json's version; the bundled servers
@@ -176,6 +177,65 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   assert.equal(require('../mcp/memv2-mcp.js').VERSION, vendored);
   assert.equal(require('../mcp/javis-mcp.js').VERSION, vendored);
   ok('log and handshake report package.json\'s version; bundled servers report javmem-mcp\'s');
+}
+
+// 10. Config mistakes are named, one warning line each, with key names and paths only (never values): unknown fields,
+//     dropped settings, missing files (a token file, the token file a Javis profile names, the hide list), a Bot id
+//     Tobs does not know, a bad mode, a missing configFile. The rest of the config still works.
+{
+  const missing = join(scratch, 'no-such.token');
+  const gone = join(scratch, 'gone.env');
+  const badProfile = join(scratch, 'bad.env');
+  writeFileSync(badProfile, `JAVIS_SOURCES=acct-a\nJAVIS_TOKEN_FROM=${gone}\n`);
+  const hide = join(scratch, 'hidden.json');
+  const E = 'bot-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+  const raw = {
+    mode: 'on', moode: 'x', env: { ...env, HOME: 'SECRET-VALUE', JAVIS_HIDE_FILE: hide },
+    bots: {
+      [A]: { name: 'Alpha', memv2: { MEMV2_TOKEN_FILE: missing, MEMV2_LIMIT: 5 }, javis: { JAVIS_TOKEN_FILE: badProfile }, colour: 'red' },
+      [E]: { name: 'Echo', memv2: { MEMV2_TOKEN_FILE: tokenFile } },
+      [B]: 'Beta',
+    },
+  };
+  const c = normalizeConfig(raw);
+  assert.deepEqual(c.problems.map((p) => p.text), [
+    'unknown field moode',
+    `unknown field bots.${A}.colour`,
+    `dropped setting bots.${A}.memv2.MEMV2_LIMIT (the value is not text)`,
+    `bots.${B} is not a set of settings, so this Bot is skipped`,
+    'dropped setting env.HOME (only MEMV2_, JAVIS_ and MEMORY_ settings are used)',
+  ]);
+  assert.deepEqual(fileProblems(c).map((p) => p.text), [
+    `missing file env.JAVIS_HIDE_FILE=${hide} (nothing is hidden)`,
+    `missing file bots.${A}.memv2.MEMV2_TOKEN_FILE=${missing} (memv2 calls will fail)`,
+    `missing file JAVIS_TOKEN_FROM=${gone}, named in bots.${A}.javis.JAVIS_TOKEN_FILE=${badProfile} (Javis calls will fail)`,
+  ]);
+  assert.equal(normalizeConfig({ mode: 'yes' }).mode, 'off');
+  assert.deepEqual(normalizeConfig({ mode: 'yes' }).problems.map((p) => p.text), ['mode is neither \'on\' nor \'off\', so the plugin is off']);
+
+  const warned = [];
+  const original = console.warn;
+  console.warn = (m) => warned.push(String(m));
+  let tools;
+  try {
+    // Tobs knows Alpha only, so Echo's id is named; Alpha still gets its tools.
+    const h = host({ get: (slug) => (slug === A ? { slug: A, name: 'Alpha' } : undefined) });
+    apply(h.ctx, { ...raw, logFile });
+    tools = h.agent(A);
+    apply(host().ctx, { configFile: join(scratch, 'nope.json'), logFile });
+  } finally {
+    console.warn = original;
+  }
+  assert.equal(tools.size, 8);
+  const lines = warned.map((w) => w.replace(/^javmem-dsh-plugin: warning /, ''));
+  assert.equal(lines.length, 10);
+  assert.ok(lines.includes(`no Bot ${E} in this DSH (bots.${E}), so nobody gets these tools`));
+  assert.ok(lines.includes(`missing file configFile=${join(scratch, 'nope.json')} (the row's own mode, bots and env are used)`));
+  assert.ok(warned.every((w) => w.startsWith('javmem-dsh-plugin: warning ')));
+  const logged = readFileSync(logFile, 'utf8');
+  assert.match(logged, new RegExp(`warning no Bot ${E} in this DSH`));
+  assert.ok(!/SECRET-VALUE|acct-a|not-a-real-token/.test(logged + warned.join('\n')), 'warnings name keys and paths, never values');
+  ok('config mistakes: one warning line each, keys and paths only');
 }
 
 assert.ok(!/"query"/.test(readFileSync(logFile, 'utf8')), 'the log must not hold arguments');

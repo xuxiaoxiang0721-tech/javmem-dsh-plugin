@@ -15,15 +15,18 @@
 //   bots     { <bot slug>: { name, off?, memory?: { ENV: value }, memv2?: { ENV: value }, javis?: { ENV: value } } }
 //            A slug is a Bot's folder name under <DSH home>/botharness/bots (bot-<32 hex>). memory = the combined
 //            server's five tools (give it both MEMV2_* and JAVIS_* settings); memv2 / javis = the single-store
-//            servers' tools. Give a Bot either memory or memv2/javis, not both: both sets would be registered, and the
-//            plugin warns (log file and stderr). Values are paths and settings, never tokens.
+//            servers' tools. Give a Bot either memory or memv2/javis, not both: a Bot given both gets only the memory
+//            tools. Values are paths and settings, never tokens.
+// Config mistakes never stop the plugin. Each one is named in a warning line (log file and stderr) at load and on
+// every reload: a Bot given both tool sets, a dropped setting, an unknown field, a file setting whose file is
+// missing, a Bot id this DSH does not know. Warnings carry key names and paths only, never values or tokens.
 //   env      { ENV: value } given to every call (e.g. MEMORY_OWNER, MEMV2_URL, JAVIS_URL)
 //   prefix   { memv2: 'memv2_', javis: 'javis_' }
 //   servers  { memv2: <path to memv2-mcp.js>, javis: <path to javis-mcp.js> } (default: the bundled copies)
 //   configFile, catalogFile, logFile, callMs (logFile: optional; one line per call with bot, tool, milliseconds and
 //            answer size, never arguments or memory text)
 import { spawn } from 'node:child_process';
-import { appendFileSync, readFileSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineTool } from '@deepseek-ai/dsh-tools';
@@ -57,32 +60,127 @@ function logger(file) {
   };
 }
 
-const envOf = (obj) => Object.fromEntries(Object.entries(obj && typeof obj === 'object' ? obj : {})
-  .filter(([k, v]) => OWN_ENV.test(k) && typeof v === 'string'));
+// Fields a config may carry: FILE_FIELDS in a configFile or the row, ROW_FIELDS only in the cordis row (call and now
+// are for tests), BOT_FIELDS in one Bot's entry.
+const FILE_FIELDS = ['mode', 'bots', 'env'];
+const ROW_FIELDS = ['configFile', 'catalogFile', 'logFile', 'callMs', 'prefix', 'servers', 'call', 'now'];
+const BOT_FIELDS = ['name', 'off', ...STORES];
+// Settings that name a file, with what a missing file means for the Bot.
+const FILE_SETTINGS = {
+  MEMV2_TOKEN_FILE: 'memv2 calls will fail',
+  JAVIS_TOKEN_FILE: 'Javis calls will fail',
+  MEMORY_LABELS_FILE: 'no cross-check marks',
+  JAVIS_HIDE_FILE: 'nothing is hidden',
+  JAVIS_VERIFY_FILE: 'facts get the rule check only',
+};
+const isObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
 /**
- * The usable part of a config object (row config or file). overlap names the Bots given both the combined server
- * and a single-store one: they get both tool sets, which is almost always a mistake.
+ * The usable part of a config object (row config or file), and what was wrong with it. overlap names the Bots given
+ * both the combined server and a single-store one: they get the memory tools only. problems lists every mistake as
+ * { bot: slug or null, text } with key names, never values.
  */
 export function normalizeConfig(raw = {}, from = 'row') {
+  const problems = [];
+  const note = (text, bot = null) => problems.push({ bot, text });
+  const input = isObject(raw) ? raw : {};
+  const known = from === 'file' ? FILE_FIELDS : [...FILE_FIELDS, ...ROW_FIELDS];
+  for (const key of Object.keys(input)) {
+    if (!known.includes(key)) note(`unknown field ${key}${from === 'file' ? ' in configFile' : ''}`);
+  }
+  // Only MEMV2_/JAVIS_/MEMORY_ settings with text values reach the servers; every other key is named and dropped.
+  const settings = (obj, where, bot) => {
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (!OWN_ENV.test(k)) note(`dropped setting ${where}.${k} (only MEMV2_, JAVIS_ and MEMORY_ settings are used)`, bot);
+      else if (typeof v !== 'string') note(`dropped setting ${where}.${k} (the value is not text)`, bot);
+      else out[k] = v;
+    }
+    return out;
+  };
   const bots = {};
   const overlap = [];
-  for (const [slug, b] of Object.entries(raw.bots || {})) {
-    if (!b || typeof b !== 'object' || b.off === true) continue; // "off": true parks a Bot without removing it
+  if (input.bots !== undefined && !isObject(input.bots)) note('bots is not a list of Bots, so no Bot gets tools');
+  for (const [slug, b] of Object.entries(isObject(input.bots) ? input.bots : {})) {
+    const where = `bots.${slug}`;
+    if (!isObject(b)) { note(`${where} is not a set of settings, so this Bot is skipped`, slug); continue; }
+    for (const key of Object.keys(b)) if (!BOT_FIELDS.includes(key)) note(`unknown field ${where}.${key}`, slug);
+    if (b.off === true) continue; // "off": true parks a Bot without removing it
     const entry = { name: String(b.name || slug) };
-    for (const store of STORES) if (b[store] && typeof b[store] === 'object') entry[store] = envOf(b[store]);
-    if (entry.memory && (entry.memv2 || entry.javis)) overlap.push(entry.name);
+    for (const store of STORES) {
+      if (b[store] === undefined || b[store] === null) continue;
+      if (!isObject(b[store])) { note(`${where}.${store} is not a set of settings, so it is ignored`, slug); continue; }
+      entry[store] = settings(b[store], `${where}.${store}`, slug);
+    }
+    if (entry.memory && (entry.memv2 || entry.javis)) {
+      overlap.push(entry.name);
+      note(`bot="${entry.name}" has both memory and memv2/javis set; only the memory tools are registered`, slug);
+      delete entry.memv2;
+      delete entry.javis;
+    }
+    if (!STORES.some((s) => entry[s])) note(`bot="${entry.name}" names no store (memory, memv2 or javis), so it gets no tools`, slug);
     bots[slug] = entry;
   }
   // YAML 1.1 readers turn a bare on/off into a boolean.
-  const mode = raw.mode === 'on' || raw.mode === true ? 'on' : 'off';
-  return { mode, bots, env: envOf(raw.env), from, overlap };
+  const mode = input.mode === 'on' || input.mode === true ? 'on' : 'off';
+  if (input.mode !== undefined && !['on', 'off', true, false].includes(input.mode)) {
+    note(`mode is neither 'on' nor 'off', so the plugin is off`);
+  }
+  let env = {};
+  if (input.env !== undefined && !isObject(input.env)) note('env is not a set of settings, so it is ignored');
+  else if (input.env !== undefined) env = settings(input.env, 'env', null);
+  return { mode, bots, env, from, overlap, problems };
 }
 
-/** Warn about every Bot in config.overlap, in the log file (if any) and on stderr, so it shows without a log file. */
-function warnOverlap(config, log) {
-  for (const botName of config.overlap) {
-    const line = `warning bot="${botName}" has both memory and memv2/javis set, so it gets both tool sets; keep one`;
+// The JAVIS_TOKEN_FROM line of a Javis Bot profile (the file that holds the token), if it has one. Only that line is
+// read; nothing of the file is logged but the path.
+function tokenFrom(profile) {
+  try {
+    const line = readFileSync(profile, 'utf8').split(/\r?\n/).find((l) => /^\s*(export\s+)?JAVIS_TOKEN_FROM\s*=/.test(l));
+    return line ? line.slice(line.indexOf('=') + 1).trim().replace(/^(['"])(.*)\1$/, '$2').trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+/** File settings (token files, the Javis profile's token file, hide list, verdicts, labels) whose file is missing. */
+export function fileProblems(config, exists = existsSync) {
+  const problems = [];
+  const check = (env, where, bot) => {
+    for (const [key, effect] of Object.entries(FILE_SETTINGS)) {
+      const file = env[key];
+      if (!file) continue;
+      if (!exists(file)) {
+        problems.push({ bot, text: `missing file ${where}.${key}=${file} (${effect})` });
+      } else if (key === 'JAVIS_TOKEN_FILE') {
+        const from = tokenFrom(file);
+        if (from && !exists(from)) problems.push({ bot, text: `missing file JAVIS_TOKEN_FROM=${from}, named in ${where}.${key}=${file} (${effect})` });
+      }
+    }
+  };
+  check(config.env, 'env', null);
+  for (const [slug, bot] of Object.entries(config.bots)) {
+    for (const store of STORES) if (bot[store]) check(bot[store], `bots.${slug}.${store}`, slug);
+  }
+  return problems;
+}
+
+/** Bots listed by an id this DSH's Tobs does not know (needs its registry; none is checked without one). */
+export function botProblems(config, registry) {
+  if (!registry || typeof registry.get !== 'function') return [];
+  const problems = [];
+  for (const slug of Object.keys(config.bots)) {
+    let known = true;
+    try { known = registry.get(slug) !== undefined; } catch { /* a registry that cannot answer: do not guess */ }
+    if (!known) problems.push({ bot: slug, text: `no Bot ${slug} in this DSH (bots.${slug}), so nobody gets these tools` });
+  }
+  return problems;
+}
+
+/** Each problem as one warning line, in the log file (if any) and on stderr, so it shows without a log file. */
+function warn(problems, log) {
+  for (const p of problems) {
+    const line = `warning ${p.text}`;
     log(line);
     console.warn(`${name}: ${line}`);
   }
@@ -90,10 +188,20 @@ function warnOverlap(config, log) {
 
 function readConfig(file, fallback) {
   if (!file) return normalizeConfig(fallback, 'row');
+  let text;
   try {
-    return normalizeConfig(JSON.parse(readFileSync(file, 'utf8').replace(/^﻿/, '')), 'file');
+    text = readFileSync(file, 'utf8');
   } catch {
-    return normalizeConfig(fallback, 'row');
+    const c = normalizeConfig(fallback, 'row');
+    c.problems.unshift({ bot: null, text: `missing file configFile=${file} (the row's own mode, bots and env are used)` });
+    return c;
+  }
+  try {
+    return normalizeConfig(JSON.parse(text.replace(/^﻿/, '')), 'file');
+  } catch {
+    const c = normalizeConfig(fallback, 'row');
+    c.problems.unshift({ bot: null, text: `configFile=${file} is not valid JSON (the row's own mode, bots and env are used)` });
+    return c;
   }
 }
 
@@ -212,13 +320,15 @@ export function apply(ctx, rowConfig = {}) {
   opts.call = rowConfig.call || callServer;
   const now = rowConfig.now || Date.now;
   const log = logger(opts.logFile);
+  let registry = null; // Tobs's Bot registry, once the botharness service is there
+  const check = (c) => warn([...c.problems, ...fileProblems(c), ...botProblems(c, registry)], log);
   let config = readConfig(opts.configFile, rowConfig);
   let configMtime = mtime(opts.configFile);
   let checkedAt = now();
   let catalog = readCatalog(opts.catalogFile);
   log(`started v=${VERSION} mode=${config.mode} bots=${Object.keys(config.bots).length} from=${config.from} `
     + `tools=${STORES.map((s) => `${s}:${catalog[s].length}`).join(',')}`);
-  warnOverlap(config, log);
+  check(config);
 
   // Refresh the catalog from the servers themselves (with the shared env, so MEMORY_OWNER shows in the text).
   Promise.all(STORES.map((s) => opts.call(opts.servers[s], config.env, null, null, { timeoutMs: 30000 })
@@ -241,7 +351,7 @@ export function apply(ctx, rowConfig = {}) {
         configMtime = m;
         config = readConfig(opts.configFile, rowConfig);
         log(`config reloaded mode=${config.mode} bots=${Object.keys(config.bots).length} from=${config.from}`);
-        warnOverlap(config, log);
+        check(config);
       }
     }
     return config;
@@ -273,6 +383,8 @@ export function apply(ctx, rowConfig = {}) {
   };
 
   ctx.inject(['botharness'], (scope) => {
+    registry = scope.botharness?.registry ?? null;
+    warn(botProblems(current(), registry), log);
     scope.effect(() => scope.botharness.contributeBotAgentSetup(setup), `${name}: per-Bot memory tools`);
   });
 }
