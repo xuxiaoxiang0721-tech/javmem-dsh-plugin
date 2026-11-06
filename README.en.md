@@ -116,6 +116,16 @@ Every listed Bot also gets `memory_status`: which memory tools the Bot has; how 
 
 Tool names, descriptions and arguments come from the bundled MCP servers (`mcp/`, copied from [javmem-mcp](https://github.com/xuxiaoxiang0721-tech/javmem-mcp)); the descriptions are in Chinese and kept short for small models. For cross-check marks on the combined tools, set `MEMORY_LABELS_FILE` in `env` (format in the javmem-mcp README).
 
+## Auto recall (optional, off by default)
+
+Small models often forget to call the memory tools. With auto recall on, the plugin asks for them before each step:
+
+- **Turning it on**: `autoRecall: true` in a Bot's entry (or `{ maxChars: 800 }`, the most characters to bring back, 100 to 4000); `autoRecall: true` at the top of the config turns it on for every listed Bot, and a Bot can say `false`.
+- **When**: only when a Human's words enter the step: a direct message (Tobs's `[Human DM]`), a Human's mention in a Group, or text typed in the DSH web page. Tobs's notices, other Bots' messages and schedules never trigger it.
+- **What**: the Bot's own recall (local store, combined set or memv2), asked with the Human's words.
+- **Where it goes**: one more user-role message in that step, with its own source kind (`javmem-recall`), never in the system prompt, opening with a note that it is material, not instructions. When nothing comes back or something fails, nothing is added and the Bot answers as usual. The local store never takes these messages in.
+- It follows OpenViking's auto recall.
+
 ## Usage notes for the Bot
 
 With the tools in place, a Bot still needs to know how to use them. Two notes ship with the plugin, in Chinese like the tool text and in line with the tools' own guidance (a test checks this):
@@ -172,6 +182,7 @@ Override the row by its id in your profile's `cordis.patch.yml`:
 | `template` | optional: settings for every Bot whose entry names no store; `{name}` and `{slug}` become the Bot's name and id (next section) |
 | `backend` | optional: what a Bot gets that names no store and has no template. `'local'` (default) = the local store; `'none'` = no tools (the way before 0.3.0) |
 | `localDir` | optional: the folder of the local stores, default `<DSH home>/javmem/local` |
+| `autoRecall` | optional: auto recall, off by default. `true` or `{ maxChars }` turns it on for every listed Bot; a Bot's entry may say so too (see "Auto recall") |
 | `env` | settings sent with every call, such as `MEMORY_OWNER` (how the tool text names the memory's owner), `MEMV2_URL`, `JAVIS_URL`, `MEMORY_LABELS_FILE` |
 | `configFile` | optional: a JSON file with the fields above instead, re-read when it changes, no restart |
 | `logFile` | optional: the log file's path |

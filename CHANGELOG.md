@@ -13,6 +13,7 @@
 - 演示数据：`env` 里写 `MEMV2_URL: 'demo'`、`JAVIS_URL: 'demo'`，Bot 就从附带的虚构数据回答，不要令牌；`memory_status` 会说明是演示数据；README 配了截图。
 - 用法说明：技能 `skills/javmem-memory/SKILL.md` 和前台规则片段 `docs/front-rules.md`（先 recall 再 search、金额以 memv2 为准、名字要对得上），和工具说明一致，测试会核对。
 - 零准备模式：列出的 Bot 不写任何库，就用本地库：插件通过 DSH 的会话查询服务只读地把这个 Bot 自己的历史会话（真人私信、网页消息、Bot 的回复）建成本地全文索引，一个 Bot 一个 SQLite 文件，查之前补新对话。不要令牌，不用另搭服务。`backend: 'none'` 回到以前的做法。
+- 自动召回（可选，默认关）：`autoRecall` 打开后，每一步之前只要有真人发言，就用这个 Bot 自己的 recall 取几条，作为带 `javmem-recall` 标记的用户消息插进这一步，不放进系统提示，写明是资料不是指令。
 
 English:
 
@@ -26,6 +27,7 @@ English:
 - Long-lived processes: one MCP server process per Bot and store, stopped after 5 idle minutes, at most 8 at once, replaced and the call retried once when it dies mid-call. Consecutive calls went from 54.6 ms to 4.2 ms each on average (`scripts/bench-calls.mjs`). `keepAlive: false` goes back to a process per call.
 - Demo data: with `MEMV2_URL: 'demo'` and `JAVIS_URL: 'demo'` in `env`, a Bot answers from the bundled made-up data, no token; `memory_status` says it is demo data; the README has a picture.
 - Zero-setup mode: a listed Bot that names no store gets the local store: through DSH's session query service the plugin indexes that Bot's own past sessions (Human DMs, web messages, the Bot's replies), read-only, one SQLite file per Bot, adding new messages before a call. No token, no service to set up. `backend: 'none'` restores the old behaviour.
+- Auto recall (optional, off by default): with `autoRecall`, before each step in which a Human speaks, the Bot's own recall is asked and its lines join the step as one user-role message of kind `javmem-recall`, never in the system prompt, marked as material, not instructions.
 - Usage notes: the skill `skills/javmem-memory/SKILL.md` and the front-rules snippet `docs/front-rules.md` (recall first, then search; amounts count from memv2; names must match), in line with the tools' guidance, checked by a test.
 
 ## 0.2.2

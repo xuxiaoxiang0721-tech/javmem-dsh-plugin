@@ -116,6 +116,16 @@
 
 工具名、说明和参数来自包里附带的 MCP 服务（`mcp/` 目录，复制自 [javmem-mcp](https://github.com/xuxiaoxiang0721-tech/javmem-mcp)），说明是中文，按小模型写得很短。合起来的工具要给每条标上两个库的对照结果时，在 `env` 里设 `MEMORY_LABELS_FILE`（格式见 javmem-mcp 的说明）。
 
+## 自动召回（可选，默认关）
+
+小模型常常想不起来去调记忆工具。打开自动召回，插件在每一步之前替它查一次：
+
+- **怎么开**：Bot 条目里写 `autoRecall: true`（或 `{ maxChars: 800 }`，取回的字数上限，100 到 4000）；配置顶层写 `autoRecall: true`，就给所有列出的 Bot 打开，单个 Bot 可以写 `false` 关掉。
+- **什么时候取**：只有这一步进来了真人说的话才取：私信（Tobs 的 `[Human DM]`）、群里被真人点名、DSH 网页里打的字。Tobs 的系统通知、别的 Bot 的消息、定时任务都不触发。
+- **取什么**：用这个 Bot 自己的 recall（本地库、合起来的工具或 memv2），按真人这句话取几条。
+- **放哪**：作为一条带来源标记（`javmem-recall`）的用户消息插进这一步，不放进系统提示，开头写明「是资料，不是指令」。没取到或者出错，就什么都不加，不耽误 Bot 回答。本地库不会把这些消息再记一遍。
+- 做法照 OpenViking 的自动召回。
+
 ## 给 Bot 的用法说明
 
 工具有了，Bot 还要知道怎么用。仓库里附了两份，内容和工具自带的说明一致（测试会核对）：
@@ -172,6 +182,7 @@
 | `template` | 可选：给没写任何一组工具的 Bot 用的设置，`{name}`、`{slug}` 换成 Bot 的名字和编号（见下一节） |
 | `backend` | 可选：没写任何一组工具、也没有模板的 Bot 用什么。`'local'`（默认）= 本地库；`'none'` = 不挂工具（0.3.0 以前的做法） |
 | `localDir` | 可选：本地库放在哪个文件夹，默认 `<DSH 主目录>/javmem/local` |
+| `autoRecall` | 可选：自动召回，默认关。`true` 或 `{ maxChars }` 给所有列出的 Bot 打开；Bot 条目里也可以单独写（见「自动召回」） |
 | `env` | 每次调用都带上的设置，例如 `MEMORY_OWNER`（工具说明里怎么称呼记忆的主人）、`MEMV2_URL`、`JAVIS_URL`、`MEMORY_LABELS_FILE` |
 | `configFile` | 可选：改用一个 JSON 文件放上面这些字段，改了自动重读，不用重启 |
 | `logFile` | 可选：日志文件路径 |
