@@ -1,6 +1,6 @@
 # 更新记录 / Changelog
 
-## 0.3.0（未发布 / unreleased）
+## 0.3.0（2026-11-06）
 
 - 版本号：启动日志和 MCP 握手里报的都是 `package.json` 的版本；附带的服务报 javmem-mcp 的版本（记在 `mcp/package.json`，由 `scripts/vendor-mcp.mjs` 写入）。
 - 配置写错会提示：同一个 Bot 既写 `memory` 又写 `memv2`/`javis` 时只挂 `memory` 一组（0.2.2 是两组都挂）；丢掉的设置、不认识的字段、找不到的文件、Tobs 里没有的 Bot 编号，各记一行警告，只写键名和路径。

@@ -1,7 +1,7 @@
 {
   "name": "javmem-dsh-plugin",
   "version": "0.3.0",
-  "description": "DeepSeek Harness (Tobs) plugin: read-only memory tools from memv2 and Javis for the Bots you list (one combined tool or the two single-store ones), with no per-Bot private MCP card.",
+  "description": "DeepSeek Harness (Tobs) plugin: per-Bot memory that works as installed (each Bot's own past conversations, Chinese full-text), with backends chosen at install: a public fact store (memv2-lite), the official Graphiti graph, or both, fed from the Bot's conversations within a daily token cap. Read-only tools, no per-Bot MCP card.",
   "license": "MIT",
   "author": "xuxiaoxiang0721-tech",
   "homepage": "https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin#readme",
