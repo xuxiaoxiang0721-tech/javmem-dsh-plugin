@@ -15,6 +15,7 @@
 - 零准备模式：列出的 Bot 不写任何库，就用本地库：插件通过 DSH 的会话查询服务只读地把这个 Bot 自己的历史会话（真人私信、网页消息、Bot 的回复）建成本地全文索引，一个 Bot 一个 SQLite 文件，查之前补新对话。不要令牌，不用另搭服务。`backend: 'none'` 回到以前的做法。
 - 自动召回（可选，默认关）：`autoRecall` 打开后，每一步之前只要有真人发言，就用这个 Bot 自己的 recall 取几条，作为带 `javmem-recall` 标记的用户消息插进这一步，不放进系统提示，写明是资料不是指令。
 - 给其他插件的接口：`ctx.javmem`（`bots`、`recall`、`search`、`ask`、`status`），按 Bot 编号直接查这个 Bot 自己的记忆，不经过模型；附例子 `examples/use-javmem-service.mjs`。
+- 继承别的 AI 的记忆：javmem 包（javmem-mcp 的 `javmem-inherit`）放进 `<DSH 主目录>/javmem/inherit/<Bot 名字或编号>/`，补录时导进这个 Bot 的本地库，标上来源，每个文件只导一次。
 
 English:
 
@@ -30,6 +31,7 @@ English:
 - Zero-setup mode: a listed Bot that names no store gets the local store: through DSH's session query service the plugin indexes that Bot's own past sessions (Human DMs, web messages, the Bot's replies), read-only, one SQLite file per Bot, adding new messages before a call. No token, no service to set up. `backend: 'none'` restores the old behaviour.
 - Auto recall (optional, off by default): with `autoRecall`, before each step in which a Human speaks, the Bot's own recall is asked and its lines join the step as one user-role message of kind `javmem-recall`, never in the system prompt, marked as material, not instructions.
 - A service for other plugins: `ctx.javmem` (`bots`, `recall`, `search`, `ask`, `status`) asks a Bot's own memory by its id without a model; example in `examples/use-javmem-service.mjs`.
+- Memory inherited from other AIs: a javmem package (javmem-mcp's `javmem-inherit`) in `<DSH home>/javmem/inherit/<Bot name or id>/` goes into that Bot's local store on its next pass, marked with where it came from, each file once.
 - Usage notes: the skill `skills/javmem-memory/SKILL.md` and the front-rules snippet `docs/front-rules.md` (recall first, then search; amounts count from memv2; names must match), in line with the tools' guidance, checked by a test.
 
 ## 0.2.2

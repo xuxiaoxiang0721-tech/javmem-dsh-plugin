@@ -56,6 +56,7 @@ The same tools work in Claude Code and other MCP clients through [javmem-mcp](ht
 - **How often**: the plugin indexes in the background after it starts; before a memory call, anything newer than a minute is added first; and every 10 minutes in the background.
 - **How it searches**: SQLite full-text search. Chinese is indexed as pairs of neighbouring characters, so 「游泳课」 (swimming lessons) is found inside 「小雨的游泳课改到周三了」; other text by words.
 - **Measured** (on the author's machine, 10 Bots, 68 sessions): 394 messages taken in, indexed in memory in 34 ms; one search in each of the 10 stores took 1 ms in all.
+- **Memory inherited from other AIs**: with javmem-mcp's [export prompt](https://github.com/xuxiaoxiang0721-tech/javmem-mcp/blob/main/docs/inherit-prompt.md), an AI such as Grok, Muse or Dot writes what it remembers as a package; save it as a file in `<DSH home>/javmem/inherit/<Bot name or id>/` and the plugin adds it to that Bot's local store on its next pass, each item marked with where it came from, each file once (`inheritDir` changes the folder).
 - The tools have the same names as the combined set (`memory_recall`, `memory_search`, `memory_search_raw`, `memory_person`, `memory_read`), so a Bot's rules stay the same when it moves to memv2 and Javis.
 
 ## Try it first: demo data
@@ -207,6 +208,7 @@ Override the row by its id in your profile's `cordis.patch.yml`:
 | `template` | optional: settings for every Bot whose entry names no store; `{name}` and `{slug}` become the Bot's name and id (next section) |
 | `backend` | optional: what a Bot gets that names no store and has no template. `'local'` (default) = the local store; `'none'` = no tools (the way before 0.3.0) |
 | `localDir` | optional: the folder of the local stores, default `<DSH home>/javmem/local` |
+| `inheritDir` | optional: the folder of inherited packages, default `<DSH home>/javmem/inherit`; each Bot reads its `<Bot id>/` and `<Bot name>/` in it |
 | `autoRecall` | optional: auto recall, off by default. `true` or `{ maxChars }` turns it on for every listed Bot; a Bot's entry may say so too (see "Auto recall") |
 | `env` | settings sent with every call, such as `MEMORY_OWNER` (how the tool text names the memory's owner), `MEMV2_URL`, `JAVIS_URL`, `MEMORY_LABELS_FILE` |
 | `configFile` | optional: a JSON file with the fields above instead, re-read when it changes, no restart |

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const mcp = join(here, '..', 'mcp');
-const FILES = ['memory-mcp.js', 'memv2-mcp.js', 'javis-mcp.js', 'demo.js', 'local-mcp.js', 'local-store.js'];
+const FILES = ['memory-mcp.js', 'memv2-mcp.js', 'javis-mcp.js', 'demo.js', 'local-mcp.js', 'local-store.js', 'inherit.js'];
 const DIRS = ['demo']; // the made-up demo data for MEMV2_URL=demo and JAVIS_URL=demo
 
 const from = process.argv[2];

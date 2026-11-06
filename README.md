@@ -56,6 +56,7 @@
 - **多久更新**：插件启动后在后台建一遍；之后查记忆前，距上次超过一分钟就把新对话补进来；另外每 10 分钟补一次。
 - **怎么搜**：SQLite 全文索引。中文按相邻两个字切开再建索引，所以「游泳课」能在「小雨的游泳课改到周三了」里找到；英文和数字按词。
 - **实测**（作者的机器，10 个 Bot、68 个会话）：取出 394 条对话，在内存里建索引 34 毫秒，10 个库各搜一次共 1 毫秒。
+- **继承别的 AI 的记忆**：用 javmem-mcp 的 [导出提示词](https://github.com/xuxiaoxiang0721-tech/javmem-mcp/blob/main/docs/inherit-prompt.md) 让 Grok、Muse、Dot 这类 AI 把记得的事写成一个包，存成文件放进 `<DSH 主目录>/javmem/inherit/<Bot 名字或编号>/`，插件下次补录时导进这个 Bot 的本地库，每条标上「继承自某某」，同一个文件只导一次（`inheritDir` 可改文件夹）。
 - 工具和合起来的工具同名（`memory_recall`、`memory_search`、`memory_search_raw`、`memory_person`、`memory_read`），以后换成 memv2 和 Javis，Bot 的规则不用改。
 
 ## 先试试：演示数据
@@ -207,6 +208,7 @@ export function apply(ctx) {
 | `template` | 可选：给没写任何一组工具的 Bot 用的设置，`{name}`、`{slug}` 换成 Bot 的名字和编号（见下一节） |
 | `backend` | 可选：没写任何一组工具、也没有模板的 Bot 用什么。`'local'`（默认）= 本地库；`'none'` = 不挂工具（0.3.0 以前的做法） |
 | `localDir` | 可选：本地库放在哪个文件夹，默认 `<DSH 主目录>/javmem/local` |
+| `inheritDir` | 可选：放继承包的文件夹，默认 `<DSH 主目录>/javmem/inherit`；每个 Bot 读其中的 `<Bot 编号>/` 和 `<Bot 名字>/` |
 | `autoRecall` | 可选：自动召回，默认关。`true` 或 `{ maxChars }` 给所有列出的 Bot 打开；Bot 条目里也可以单独写（见「自动召回」） |
 | `env` | 每次调用都带上的设置，例如 `MEMORY_OWNER`（工具说明里怎么称呼记忆的主人）、`MEMV2_URL`、`JAVIS_URL`、`MEMORY_LABELS_FILE` |
 | `configFile` | 可选：改用一个 JSON 文件放上面这些字段，改了自动重读，不用重启 |

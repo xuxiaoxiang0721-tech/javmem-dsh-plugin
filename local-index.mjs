@@ -4,7 +4,10 @@
 // envelope, or a Human's Group mention), what a Human typed in the DSH web page, and what the Bot sent back with
 // bot_send_message. Injected context, tool results and memory tools' own answers never do, so memory is not stored
 // twice. Each session is read from where the last pass stopped.
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { extname, join } from 'node:path';
 
 const require = createRequire(import.meta.url);
 
@@ -69,11 +72,35 @@ function titleOf(events) {
 }
 
 /**
- * The indexer. deps: sessionQuery() and registry() (they arrive later than the plugin), dbFor(slug) (the Bot's store
- * file), log, now. refresh(slug) brings one Bot's store up to date; fresh(slug) does so when the last pass is older
- * than maxAgeMs (and waits for one that is running); close() closes the stores.
+ * Memory inherited from other tools: javmem packages (javmem-inherit) dropped into one of the Bot's inherit folders
+ * are added to its store, each file once (by its content hash). Returns how many messages were added.
  */
-export function createIndexer({ sessionQuery, registry, dbFor, log = () => {}, now = Date.now, maxAgeMs = 60000 }) {
+function importInbox(store, dirs, log, slug) {
+  const { importPackage } = require('./mcp/inherit.js');
+  let added = 0;
+  for (const dir of dirs) {
+    if (!dir || !existsSync(dir)) continue;
+    for (const file of readdirSync(dir).filter((f) => ['.json', '.txt', '.md'].includes(extname(f).toLowerCase())).sort()) {
+      let text;
+      try { text = readFileSync(join(dir, file), 'utf8'); } catch { continue; }
+      const hash = createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16);
+      if (store.meta(`inherited:${hash}`)) continue;
+      const r = importPackage(store, text);
+      added += r.added;
+      if (!r.pkg.facts.length && !r.pkg.conversations.length) store.meta(`inherited:${hash}`, 'unusable');
+      log(`inherit bot=${slug} file=${file} added=${r.added} problems=${r.pkg.problems.length}`);
+    }
+  }
+  return added;
+}
+
+/**
+ * The indexer. deps: sessionQuery() and registry() (they arrive later than the plugin), dbFor(slug) (the Bot's store
+ * file), inheritDirs(slug) (folders of javmem packages for it), log, now. refresh(slug) brings one Bot's store up to
+ * date; fresh(slug) does so when the last pass is older than maxAgeMs (and waits for one that is running); close()
+ * closes the stores.
+ */
+export function createIndexer({ sessionQuery, registry, dbFor, inheritDirs = () => [], log = () => {}, now = Date.now, maxAgeMs = 60000 }) {
   const stores = new Map(); // slug -> LocalStore (read-write)
   const last = new Map(); // slug -> time of the last finished pass
   const running = new Map(); // slug -> promise of the pass in progress
@@ -89,14 +116,16 @@ export function createIndexer({ sessionQuery, registry, dbFor, log = () => {}, n
   };
 
   async function pass(slug) {
+    // Inherited packages first: they need no session service.
+    const inherited = dbFor(slug) ? importInbox(storeOf(slug), inheritDirs(slug), log, slug) : 0;
     const query = sessionQuery();
     const reg = registry();
-    if (!query || typeof query.filterSessions !== 'function' || !reg) return { sessions: 0, added: 0, skipped: 'no session service' };
+    if (!query || typeof query.filterSessions !== 'function' || !reg) return { sessions: 0, added: inherited, skipped: 'no session service' };
     const dir = typeof reg.memoryDirFor === 'function' ? reg.memoryDirFor(slug) : undefined;
-    if (!dir) return { sessions: 0, added: 0, skipped: 'no memory folder' };
+    if (!dir) return { sessions: 0, added: inherited, skipped: 'no memory folder' };
     const store = storeOf(slug);
     const records = await query.filterSessions([{ kind: 'cwd', values: [dir] }]);
-    let added = 0;
+    let added = inherited;
     for (const record of records) {
       const id = record && record.header && record.header.id;
       if (!id) continue;

@@ -84,7 +84,7 @@ function logger(file) {
 
 // Fields a config may carry: FILE_FIELDS in a configFile or the row, ROW_FIELDS only in the cordis row (call and now
 // are for tests), BOT_FIELDS in one Bot's entry.
-const FILE_FIELDS = ['mode', 'bots', 'env', 'template', 'backend', 'localDir', 'autoRecall'];
+const FILE_FIELDS = ['mode', 'bots', 'env', 'template', 'backend', 'localDir', 'inheritDir', 'autoRecall'];
 const ROW_FIELDS = ['configFile', 'catalogFile', 'logFile', 'callMs', 'prefix', 'servers', 'statusTool',
   'keepAlive', 'idleMs', 'maxProcesses', 'indexMaxAgeMs', 'indexEveryMs', 'call', 'now'];
 const BOT_FIELDS = ['name', 'off', 'autoRecall', ...STORES];
@@ -198,8 +198,10 @@ export function normalizeConfig(raw = {}, from = 'row') {
   else if (input.env !== undefined) env = settings(input.env, 'env', null);
   const localDir = typeof input.localDir === 'string' && input.localDir.trim() ? input.localDir.trim() : undefined;
   if (input.localDir !== undefined && !localDir) note('localDir is not a path, so the default is used');
+  const inheritDir = typeof input.inheritDir === 'string' && input.inheritDir.trim() ? input.inheritDir.trim() : undefined;
+  if (input.inheritDir !== undefined && !inheritDir) note('inheritDir is not a path, so the default is used');
   const autoRecall = input.autoRecall === undefined ? null : recallSetting(input.autoRecall, 'autoRecall', null);
-  return { mode, bots, env, template, backend: backend === 'none' ? 'none' : 'local', localDir, autoRecall, from, overlap, problems };
+  return { mode, bots, env, template, backend: backend === 'none' ? 'none' : 'local', localDir, inheritDir, autoRecall, from, overlap, problems };
 }
 
 // A Bot name as it may stand in a path: characters that paths cannot hold (or that would make it a folder) become _.
@@ -814,6 +816,12 @@ export function apply(ctx, rowConfig = {}) {
     sessionQuery: () => sessionQuery,
     registry: () => registry,
     dbFor: (slug) => resolve(current()).bots[slug]?.local?.JAVMEM_LOCAL_DB,
+    // javmem packages for a Bot: <inheritDir>/<Bot id>/ and <inheritDir>/<Bot name>/ (default <DSH home>/javmem/inherit)
+    inheritDirs: (slug) => {
+      const bot = resolve(current()).bots[slug];
+      const base = current().inheritDir || opts.inheritDir || join(dirname(defaultLocalDir()), 'inherit');
+      return bot ? [join(base, slug), join(base, pathSafe(bot.name))] : [];
+    },
     log,
     now,
     maxAgeMs: opts.indexMaxAgeMs,

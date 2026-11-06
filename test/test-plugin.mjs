@@ -2,7 +2,7 @@
 // servers pointed at a closed port, so no memv2 or Javis is needed.
 //   node test/test-plugin.mjs
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -594,6 +594,30 @@ const run = (tool, args) => tool.execute(args, { signal: new AbortController().s
   assert.deepEqual(off.javmem.bots(), []);
   await assert.rejects(() => off.javmem.recall(D, 'x'), /plugin is off/);
   ok('service for other plugins: a Bot\'s own memory without a model, refusals, the example plugin');
+}
+
+// 19. Inherited memory: a javmem package (javmem-inherit) dropped into <DSH home>/javmem/inherit/<Bot name>/ is
+//     added to that Bot's local store on its next pass, once, marked with the tool it came from; another Bot does
+//     not get it.
+{
+  const I = 'bot-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii';
+  const J = 'bot-jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj';
+  const home = join(scratch, 'home19');
+  const inbox = join(home, 'javmem', 'inherit', 'India');
+  mkdirSync(inbox, { recursive: true });
+  writeFileSync(join(inbox, 'grok.json'), readFileSync(new URL('../mcp/demo/inherit-grok.json', import.meta.url), 'utf8'));
+  const registry = { get: (s) => ({ [I]: { slug: I, name: 'India' }, [J]: { slug: J, name: 'Juliet' } })[s], list: () => [], memoryDirFor: () => undefined };
+  let clock = Date.parse('2026-11-06T09:00:00Z');
+  const h = host(registry, { rootDir: join(home, 'botharness') });
+  apply(h.ctx, { mode: 'on', logFile, now: () => clock, bots: { [I]: {}, [J]: {} } });
+  const i = h.agent(I);
+  const found = await run(i.get('memory_search'), { query: '樱花' });
+  assert.match(found, /记下的事实：小明想明年春天带全家去日本看樱花（时间：去年冬天）（计划）（拿不准：具体哪个月没说）（继承自 Grok，2026-10-30 导出，消息号 m\d+）/);
+  clock += 61000;
+  await run(i.get('memory_search'), { query: '樱花' });
+  assert.match(await run(i.get('memory_status'), {}), /继承来的 5 条（1 个包）/, 'imported once');
+  assert.match(await run(h.agent(J).get('memory_search'), { query: '樱花' }), /本地记忆库里还没有内容|没有找到/);
+  ok('inherited memory: a package in the Bot\'s inherit folder is taken in once, marked, for that Bot only');
 }
 
 assert.ok(!/"query"/.test(readFileSync(logFile, 'utf8')), 'the log must not hold arguments');
