@@ -4,3 +4,4 @@ node_modules/
 .env
 .env.*
 memory-plugin.json
+dist/
