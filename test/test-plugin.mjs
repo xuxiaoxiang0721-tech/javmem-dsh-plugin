@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, DEFAULTS, normalizeConfig, parameters } from '../index.mjs';
 
-const scratch = mkdtempSync(join(tmpdir(), 'two-memory-plugin-'));
+const scratch = mkdtempSync(join(tmpdir(), 'javmem-dsh-plugin-'));
 const A = 'bot-0123456789abcdef0123456789abcdef';
 const B = 'bot-fedcba9876543210fedcba9876543210';
 const CLOSED = 'http://127.0.0.1:9';

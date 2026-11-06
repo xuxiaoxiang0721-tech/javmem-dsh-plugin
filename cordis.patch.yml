@@ -1,6 +1,6 @@
-# dsh-plugin-two-memory: memv2 and Javis tools for the Bots you list. It starts with mode off and no Bots; override
+# javmem-dsh-plugin: memv2 and Javis tools for the Bots you list. It starts with mode off and no Bots; override
 # this row by its id in your profile's cordis.patch.yml (see README.md), for example:
-#   - id: two-memory
+#   - id: javmem
 #     config:
 #       mode: 'on'
 #       env: { MEMORY_OWNER: '小明' }
@@ -9,8 +9,8 @@
 #           name: Alpha
 #           memory: { MEMV2_TOKEN_FILE: 'D:\memory\tokens\alpha.token', JAVIS_TOKEN_FILE: 'D:\memory\profiles\alpha.env' }
 - insert:
-    - id: two-memory
-      name: dsh-plugin-two-memory
+    - id: javmem
+      name: javmem-dsh-plugin
       config:
         mode: 'off'
         bots: {}

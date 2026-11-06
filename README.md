@@ -1,4 +1,4 @@
-# dsh-plugin-two-memory
+# javmem-dsh-plugin
 
 DeepSeek Harness（Tobs）插件：给你列出的 Bot 挂上只读的记忆工具，数据来自 memv2（事实记忆）和 Javis（Graphiti 记忆图谱）。不用给每个 Bot 单独接私有 MCP、填卡片、点批准；在配置里加一个 Bot，它从下一个会话起就有记忆。
 
@@ -54,7 +54,7 @@ DeepSeek Harness（Tobs）插件：给你列出的 Bot 挂上只读的记忆工�
 在你的 profile 的 `cordis.patch.yml` 里按 id 覆盖这一行：
 
 ```yaml
-- id: two-memory
+- id: javmem
   config:
     mode: 'on'
     env:
@@ -107,4 +107,4 @@ node test/test-plugin.mjs
 
 ## English summary
 
-A DeepSeek Harness (Tobs) plugin that gives the Bots you list read-only memory tools from memv2 (fact memory) and Javis (Graphiti memory graph), with no per-Bot private MCP card. It hooks Tobs's per-Bot agent setup (`contributeBotAgentSetup`, front desk and Assignments) and registers `memv2_*` and `javis_*` tools whose text comes from the bundled MCP servers (`mcp/`, copied from javmem-mcp). Each call starts the server with that Bot's own token file or profile plus the shared `env`, so each Bot sees what its credentials allow. It ships with `mode: 'off'`; override the `two-memory` row in your profile's `cordis.patch.yml` with `mode`, `env` and `bots` (slugs are the folder names under `<DSH home>/botharness/bots`). Setup errors are logged and never block a session. Tests: `node test/test-plugin.mjs`. License: to be decided.
+A DeepSeek Harness (Tobs) plugin that gives the Bots you list read-only memory tools from memv2 (fact memory) and Javis (Graphiti memory graph), with no per-Bot private MCP card. It hooks Tobs's per-Bot agent setup (`contributeBotAgentSetup`, front desk and Assignments) and registers `memv2_*` and `javis_*` tools whose text comes from the bundled MCP servers (`mcp/`, copied from javmem-mcp). Each call starts the server with that Bot's own token file or profile plus the shared `env`, so each Bot sees what its credentials allow. It ships with `mode: 'off'`; override the `javmem` row in your profile's `cordis.patch.yml` with `mode`, `env` and `bots` (slugs are the folder names under `<DSH home>/botharness/bots`). Setup errors are logged and never block a session. Tests: `node test/test-plugin.mjs`. License: to be decided.

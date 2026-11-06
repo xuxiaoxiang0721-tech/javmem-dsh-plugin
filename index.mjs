@@ -1,4 +1,4 @@
-// dsh-plugin-two-memory: read-only memory tools for the Bots of DeepSeek Harness (Tobs), with no private MCP card,
+// javmem-dsh-plugin: read-only memory tools for the Bots of DeepSeek Harness (Tobs), with no private MCP card,
 // token form or approval per Bot.
 //
 // For every Bot listed in the config, Tobs's per-Bot agent setup (botharness contributeBotAgentSetup: the front
@@ -28,7 +28,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 
-export const name = 'dsh-plugin-two-memory';
+export const name = 'javmem-dsh-plugin';
 export const VERSION = '0.2.0';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -50,7 +50,7 @@ const OWN_ENV = /^(MEMV2_|JAVIS_|MEMORY_)/;
 function logger(file) {
   if (!file) return () => {};
   return (line) => {
-    try { appendFileSync(file, `${new Date().toISOString()} two-memory ${line}\n`, 'utf8'); } catch { /* best effort */ }
+    try { appendFileSync(file, `${new Date().toISOString()} javmem ${line}\n`, 'utf8'); } catch { /* best effort */ }
   };
 }
 
