@@ -15,7 +15,7 @@
    git push origin v<版本>
    ```
 5. **发 GitHub Release**：仓库的 Releases 页 → Draft a new release → 选标签 `v<版本>`，标题 `v<版本>`，说明贴 `dist/release-notes.md`，附件传 `dist/javmem-dsh-plugin.tgz`。
-6. **发 npm**：先 `npm login`（自己登录），再 `npm publish dist/javmem-dsh-plugin-<版本>.tgz`。
+6. **发 npm**：先 `npm login`（自己登录），再 `npm publish ./dist/javmem-dsh-plugin-<版本>.tgz`。路径前的 `./` 不能省，否则 npm 会把它当成 GitHub 仓库。账号开了两步验证，发的时候要在终端里确认，所以这一步要主人自己跑。
 7. **社区收录条目**：在 awesome-dsh-plugin 的 `data/plugins/xuxiaoxiang0721-tech__javmem-dsh-plugin.yml` 里加一行（第一次发 Release 时加，以后不用改）：
    ```yaml
    tarball: https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin/releases/latest/download/javmem-dsh-plugin.tgz
