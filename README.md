@@ -37,7 +37,7 @@
 
 1. **准备**：DeepSeek Harness 0.2.1-rc.3 以上、1.0 以下（带 Tobs），Node 22.5 以上（DSH 自带的 Node 就行）。零准备模式不需要别的。
 2. **安装**，三种写法任选：
-   - npm 包（发布后）：DSH 网页插件页按包名 `javmem-dsh-plugin` 安装，或者运行 `dsh plugin --profile web add javmem-dsh-plugin`；
+   - npm 包：DSH 网页插件页按包名 `javmem-dsh-plugin` 安装，或者运行 `dsh plugin --profile web add javmem-dsh-plugin`；
    - Release 安装包：`dsh plugin --profile web add https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin/releases/latest/download/javmem-dsh-plugin.tgz`；
    - git：`dsh plugin --profile web add git+https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin.git`。网络连不上 GitHub 的 git 服务时这一种会先失败，换前两种。
 

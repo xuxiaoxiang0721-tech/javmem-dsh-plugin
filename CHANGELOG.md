@@ -1,19 +1,21 @@
 # 更新记录 / Changelog
 
-## 0.4.0（未发布 / unreleased）
+## 0.4.0（2026-11-09）
 
-- 别的工具导出的原始会话（ChatGPT、Claude、Claude Code、Codex、1.2 版记忆包）放进 Bot 的继承文件夹，补录时导进这个 Bot 的本地库，标「导入自 某工具」，同一个文件只导一次；附带 javmem-mcp 的 `history.js`。README 的「为什么是 javmem」第 2 条补全。
+- 第一次发 npm，包名 `javmem-dsh-plugin`（0.3.0 只发了 GitHub Release）。
+- 别的工具导出的原始会话（ChatGPT、Claude、Claude Code、Codex、1.2 版记忆包）放进 Bot 的继承文件夹，补录时导进这个 Bot 的本地库，标「导入自 某工具」，同一个文件只导一次；附带 javmem-mcp 0.4.0（多了 `history.js`）。README 的「为什么是 javmem」第 2 条补全。
 
 English:
 
-- Original conversations exported from other tools (ChatGPT, Claude, Claude Code, Codex, 1.2 memory packages) in a Bot's inherit folder go into its local store on the next pass, marked as imported from that tool, each file once; bundles javmem-mcp's `history.js`. Point 2 of "Why javmem" in full.
+- First npm release, package `javmem-dsh-plugin` (0.3.0 went out as a GitHub Release only).
+- Original conversations exported from other tools (ChatGPT, Claude, Claude Code, Codex, 1.2 memory packages) in a Bot's inherit folder go into its local store on the next pass, marked as imported from that tool, each file once; bundles javmem-mcp 0.4.0 (adds `history.js`). Point 2 of "Why javmem" in full.
 
 ## 0.3.0（2026-11-06）
 
 - 版本号：启动日志和 MCP 握手里报的都是 `package.json` 的版本；附带的服务报 javmem-mcp 的版本（记在 `mcp/package.json`，由 `scripts/vendor-mcp.mjs` 写入）。
 - 配置写错会提示：同一个 Bot 既写 `memory` 又写 `memv2`/`javis` 时只挂 `memory` 一组（0.2.2 是两组都挂）；丢掉的设置、不认识的字段、找不到的文件、Tobs 里没有的 Bot 编号，各记一行警告，只写键名和路径。
 - 兼容范围放宽到 DSH 1.0 以下（`engines.dsh` 和 `@deepseek-ai/dsh-tools` 的 peer 范围），每天用 DSH 的 latest 和 next 各跑一遍测试。
-- 第一次发 npm（包名 `javmem-dsh-plugin`），GitHub Release 附安装包 `javmem-dsh-plugin.tgz`；附带 javmem-mcp 0.3.0。
+- GitHub Release 附安装包 `javmem-dsh-plugin.tgz`；附带 javmem-mcp 0.3.0。
 - 新工具 `memory_status`：这个 Bot 挂了哪些记忆工具、每个库连不连得上、令牌能不能用、文件在不在、配置提醒、最近几次调用的耗时；不显示令牌和记忆内容（`statusTool: false` 可关）。
 - README：开头一句话说清是什么，写明适合谁、不适合谁，三种装法（npm、Release 安装包、git）；英文版 `README.en.md` 和中文版内容对等；npm、CI、许可证徽章。
 - 按名字列 Bot、用模板生成路径：`bots` 的键可以写 Bot 名字（插件到 Tobs 里找编号）；`template` 里的 `{name}`、`{slug}` 换成 Bot 的名字和编号。旧写法照样能用。
@@ -31,7 +33,7 @@ English:
 - Versions: the start line in the log and the MCP handshake carry `package.json`'s version; the bundled servers report javmem-mcp's (recorded in `mcp/package.json` by `scripts/vendor-mcp.mjs`).
 - Config mistakes are named: a Bot given both `memory` and `memv2`/`javis` gets the `memory` tools only (0.2.2 registered both); dropped settings, unknown fields, missing files and Bot ids Tobs does not know each get one warning line, with key names and paths only.
 - DSH range widened to below 1.0 (`engines.dsh` and the `@deepseek-ai/dsh-tools` peer range); a daily workflow tests against DSH's latest and next.
-- First npm release (`javmem-dsh-plugin`), a GitHub Release asset `javmem-dsh-plugin.tgz`; bundles javmem-mcp 0.3.0.
+- A GitHub Release asset `javmem-dsh-plugin.tgz`; bundles javmem-mcp 0.3.0.
 - New tool `memory_status`: the Bot's memory tools, whether each store answers and takes its token, its files, its config warnings and its last calls' times; no token and no memory text (`statusTool: false` turns it off).
 - README: a one-line pitch, who it is for and not for, three ways to install (npm, Release tarball, git); `README.en.md` in English with the same content as the Chinese one; npm, CI and licence badges.
 - Bots by name, paths from a template: a key in `bots` may be a Bot name (the plugin finds its id in Tobs); `{name}` and `{slug}` in `template` become the Bot's name and id. The old form still works.

@@ -37,7 +37,7 @@ The same tools work in Claude Code and other MCP clients through [javmem-mcp](ht
 
 1. **Prepare**: DeepSeek Harness 0.2.1-rc.3 or later, below 1.0, with Tobs, and Node 22.5 or later (the Node DSH ships will do). Zero-setup mode needs nothing else.
 2. **Install**, any of three ways:
-   - the npm package (once published): on the DSH web Plugins page by the package name `javmem-dsh-plugin`, or `dsh plugin --profile web add javmem-dsh-plugin`;
+   - the npm package: on the DSH web Plugins page by the package name `javmem-dsh-plugin`, or `dsh plugin --profile web add javmem-dsh-plugin`;
    - the Release tarball: `dsh plugin --profile web add https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin/releases/latest/download/javmem-dsh-plugin.tgz`;
    - git: `dsh plugin --profile web add git+https://github.com/xuxiaoxiang0721-tech/javmem-dsh-plugin.git`. Where GitHub's git service cannot be reached this one fails first; use one of the other two.
 
